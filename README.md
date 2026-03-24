@@ -91,7 +91,7 @@ Model bazat pe 6 piloni:
 
 ---
 
-## 🤖 AI Agents (core requirement 💥)
+## 🤖 AI Agents
 
 Finalytics integrează 2 agenți AI funcționali în aplicație:
 
