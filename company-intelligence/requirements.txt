@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+playwright
+python-dotenv
+beautifulsoup4
+lxml
+requests

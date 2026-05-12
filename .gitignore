@@ -1,0 +1,42 @@
+#CALIN
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+cache/
+debug/
+
+# Playwright
+.playwright/
+
+# Docker
+*.tar
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Company Intelligence module
+company_intelligence/venv/
+company_intelligence/.env
+company_intelligence/cache/
+company_intelligence/debug/
+company_intelligence/__pycache__/
