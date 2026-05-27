@@ -11,6 +11,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
+COPY storage.py .
+COPY integrations.py .
+COPY reports.py .
 
 RUN mkdir -p /app/data
 
