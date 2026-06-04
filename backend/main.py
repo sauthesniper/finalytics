@@ -31,6 +31,7 @@ TOKEN_COSTS = {
     "anaf": 1,
     "intel": 3,
     "berc": 5,
+    "ai": 4,
     "full_analysis": 10,
 }
 

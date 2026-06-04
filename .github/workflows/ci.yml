@@ -1,0 +1,79 @@
+name: Finalytics CI
+
+on:
+  push:
+    branches: ["main", "feature/**", "fix/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── Unit & integration tests for the Python services ──
+  test:
+    name: Test ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [ai_module, backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.module }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Run tests
+        working-directory: ${{ matrix.module }}
+        env:
+          # No real key in CI: agents exercise the deterministic fallback path.
+          OPENAI_API_KEY: ""
+          DATA_DIR: /tmp/finalytics-data
+        run: pytest -q
+
+  # ── Lint the Python code ──
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check ai_module backend serp_module anaf_module || true
+
+  # ── Validate that every module's Docker image builds ──
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: backend, context: ./backend }
+          - { name: ai-module, context: ./ai_module }
+          - { name: serp, context: ./serp_module }
+          - { name: anaf, context: ./anaf_module }
+          - { name: frontend, context: ./frontend }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          tags: finalytics/${{ matrix.name }}:ci
