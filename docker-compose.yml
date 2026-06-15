@@ -5,7 +5,7 @@ services:
     image: finalytics/backend:latest
     container_name: backend
     ports:
-      - "8010:8010"
+      - "${BIND:-}8010:8010"
     environment:
       - SECRET_KEY=${SECRET_KEY:-finalytics-prod-secret-change-me}
       - AI_URL=http://ai-api:8003
@@ -26,7 +26,7 @@ services:
     image: finalytics/ai-module:latest
     container_name: ai-api
     ports:
-      - "8003:8003"
+      - "${BIND:-}8003:8003"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
@@ -51,7 +51,7 @@ services:
     image: finalytics/serp:latest
     container_name: serp-api
     ports:
-      - "3000:3000"
+      - "${BIND:-}3000:3000"
     environment:
       - API_KEY=${SERP_API_KEY:-dev-secret-key}
       - SERPAPI_API_KEY=${SERPAPI_API_KEY:-}
@@ -69,7 +69,7 @@ services:
     image: finalytics/berc:latest
     container_name: berc-api
     ports:
-      - "8001:8001"
+      - "${BIND:-}8001:8001"
     environment:
       - ONRC_USERNAME=${ONRC_USERNAME:-finbotv1}
       - ONRC_PASSWORD=${ONRC_PASSWORD:-}
@@ -89,7 +89,7 @@ services:
     image: finalytics/company-intelligence:latest
     container_name: intel-api
     ports:
-      - "8000:8000"
+      - "${BIND:-}8000:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -103,7 +103,7 @@ services:
     image: finalytics/anaf:latest
     container_name: anaf-api
     ports:
-      - "8002:8002"
+      - "${BIND:-}8002:8002"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -117,7 +117,7 @@ services:
     image: finalytics/frontend:latest
     container_name: frontend
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
       - ai-api
