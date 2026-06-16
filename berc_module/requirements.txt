@@ -1,5 +1,5 @@
-fastapi
-uvicorn[standard]
-pydantic
-playwright
-pymupdf
+fastapi==0.138.0
+uvicorn[standard]==0.49.0
+pydantic==2.13.4
+playwright==1.60.0
+pymupdf==1.27.2.3
