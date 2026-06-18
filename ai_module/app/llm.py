@@ -61,3 +61,33 @@ def chat(system_prompt: str, user_prompt: str,
         return content.strip(), True
     except Exception:
         return None, False
+
+
+def stream_chat(system_prompt: str, user_prompt: str,
+                temperature: float = 0.3, max_tokens: int = 600):
+    """
+    Stream a chat completion, yielding text deltas as they arrive.
+
+    Yields nothing if the client is unavailable or the call fails, so the
+    caller can detect "no tokens produced" and fall back.
+    """
+    client = _get_client()
+    if client is None:
+        return
+    try:
+        stream = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+    except Exception:
+        return
