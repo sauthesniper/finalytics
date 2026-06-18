@@ -964,6 +964,19 @@ async function runAnalysis(companyName, cui) {
 
     const msgEl = typingMsg;
 
+    // ── Name-only: let the agent resolve the CUI first, so the CUI-based
+    //    services (ANAF / Intel / BERC / score) can actually run. ──
+    let researchRan = false;
+    if (svcs.includes('ai') && companyName && !cui) {
+        const res = await runWebResearch(companyName, null, msgEl);
+        researchRan = true;
+        if (res && res.cui) {
+            cui = res.cui;
+            lastCui = cui;
+            addBotMsg(`Am identificat <strong>CUI ${escapeHtml(cui)}</strong> pentru <strong>${escapeHtml(companyName)}</strong>. Rulez analiza completă.`);
+        }
+    }
+
     // Run services in parallel
     const promises = [];
     if (svcs.includes('serp')) {
@@ -972,19 +985,19 @@ async function runAnalysis(companyName, cui) {
     }
     if (svcs.includes('anaf')) {
         if (cui) promises.push(runAnaf(cui, msgEl));
-        else setCard(msgEl, 'anaf', 'error', 'Necesita CUI');
+        else setCard(msgEl, 'anaf', 'error', 'CUI negasit');
     }
     if (svcs.includes('intel')) {
         if (cui) promises.push(runIntel(cui, msgEl));
-        else setCard(msgEl, 'intel', 'error', 'Necesita CUI');
+        else setCard(msgEl, 'intel', 'error', 'CUI negasit');
     }
     if (svcs.includes('berc')) {
         if (cui) promises.push(runBerc(cui, msgEl));
-        else setCard(msgEl, 'berc', 'error', 'Necesita CUI');
+        else setCard(msgEl, 'berc', 'error', 'CUI negasit');
     }
     if (svcs.includes('ai')) {
         if (cui || companyName) {
-            promises.push(runWebResearch(companyName, cui, msgEl));
+            if (!researchRan) promises.push(runWebResearch(companyName, cui, msgEl));
             promises.push(runAI(companyName, cui, msgEl));
         } else {
             setCard(msgEl, 'research', 'error', 'Necesita CUI sau nume');
@@ -1254,9 +1267,10 @@ function streamCardFinalize(msgEl, type, text, usedLlm) {
 // ═══ Agentic Web Research Agent (live timeline) ═══
 async function runWebResearch(name, cui, msgEl) {
     const card = msgEl.querySelector('[data-card="research"]');
-    if (!card) return;
+    if (!card) return {cui: null, website: null};
     const steps = [];
     let usedLlm = false;
+    const result = {cui: null, website: null};
 
     function setStatus(html, cls) {
         const st = card.querySelector('.rich-card-status');
@@ -1286,6 +1300,7 @@ async function runWebResearch(name, cui, msgEl) {
         if (answer) {
             const conf = Math.round((answer.confidence || 0) * 100);
             h += '<div class="cost-line" style="margin-top:0.5rem">';
+            if (answer.cui) h += `CUI <strong>${escapeHtml(answer.cui)}</strong> · `;
             if (answer.website)
                 h += `<a href="${escapeHtml(answer.website)}" target="_blank" style="color:var(--orange)">${escapeHtml(answer.website)}</a> · incredere ${conf}%`;
             else
@@ -1308,6 +1323,8 @@ async function runWebResearch(name, cui, msgEl) {
                 steps.push(data);
                 render(false);
             } else if (event === 'answer') {
+                result.cui = data.cui || null;
+                result.website = data.website || null;
                 setStatus(`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 5l3 3 5-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Done`, 'status-done');
                 render(true, data);
             }
@@ -1315,6 +1332,7 @@ async function runWebResearch(name, cui, msgEl) {
     } catch (e) {
         setCard(msgEl, 'research', 'error', '<div>Agent web research indisponibil</div>');
     }
+    return result;
 }
 
 // ═══ AI: streaming score + agents (US3, US4, US13, US14) ═══

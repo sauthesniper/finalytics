@@ -146,6 +146,54 @@ def test_fetch_page_rejects_bad_url():
     assert page["verified"] is False
 
 
+# ─── CUI resolution + checksum validation ─────────────────────────────────────
+
+def test_valid_cui_accepts_real_cui():
+    assert wr.valid_cui("14388248") is True      # INTERNET TEAM SRL
+    assert wr.valid_cui("RO14388248") is True     # tolerates RO prefix
+
+
+def test_valid_cui_rejects_garbage():
+    assert wr.valid_cui("1234") is False          # bad checksum
+    assert wr.valid_cui("0722123456") is False    # a phone number
+    assert wr.valid_cui("") is False
+
+
+def test_agent_resolves_cui_from_name(monkeypatch):
+    monkeypatch.setattr(wr, "llm_available", lambda: True)
+
+    calls = {"n": 0}
+
+    def fake_chat(messages, tools, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _FakeMsg(tool_calls=[_FakeToolCall(
+                "c1", "search_web", json.dumps({"query": "INTERNET TEAM SRL CUI"}))]), True
+        return _FakeMsg(tool_calls=[_FakeToolCall(
+            "c2", "finish", json.dumps({"cui": "14388248",
+                                        "website": "https://internet-team.ro",
+                                        "confidence": 0.95,
+                                        "summary": "Găsit."}))]), True
+
+    monkeypatch.setattr(wr, "chat_with_tools", fake_chat)
+    monkeypatch.setattr(wr, "_tool_search_web",
+                        lambda q: [{"title": "Internet Team", "url": "https://listafirme.ro/x"}])
+
+    # name only, no CUI -> agent must resolve it
+    out = wr.run_web_research({"cui": None, "company_name": "INTERNET TEAM SRL"})
+    assert out["cui"] == "14388248"
+    assert out["website"] == "https://internet-team.ro"
+
+
+def test_agent_rejects_invalid_cui(monkeypatch):
+    monkeypatch.setattr(wr, "llm_available", lambda: True)
+    monkeypatch.setattr(wr, "chat_with_tools", lambda m, t, **k: (_FakeMsg(
+        tool_calls=[_FakeToolCall("c", "finish",
+                                  json.dumps({"cui": "1234", "confidence": 0.5, "summary": "x"}))]), True))
+    out = wr.run_web_research({"cui": None, "company_name": "X SRL"})
+    assert out["cui"] is None  # invalid checksum -> not surfaced
+
+
 # ─── Light aggregation (perf: agent must not trigger the heavy intel scrape) ──
 
 def test_aggregate_light_only_calls_anaf(monkeypatch):

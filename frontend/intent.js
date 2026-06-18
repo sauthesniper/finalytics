@@ -113,6 +113,15 @@
             if (m) companyName = m[1].trim();
         }
 
+        // Bare company name with an unambiguous legal suffix, e.g. "int80 srl",
+        // "int80srl" — no verb, possibly lowercase.
+        if (!companyName) {
+            const t = text.trim();
+            const compact = t.replace(/[\s.\-]/g, '');
+            const hasSuffix = /\b(srl|s\.r\.l\.?|s\.a\.?|pfa|srl-d)\b/i.test(t) || /(srl|pfa)$/i.test(compact);
+            if (hasSuffix && t.split(/\s+/).length <= 5) companyName = t;
+        }
+
         if (cui || companyName) {
             return { intent: 'analyze', cui, companyName };
         }

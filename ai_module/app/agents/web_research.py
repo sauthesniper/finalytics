@@ -33,14 +33,15 @@ MAX_PAGE_CHARS = 3000
 
 SYSTEM_PROMPT = (
     "Ești un agent de cercetare web pentru firme din România. Scopul tău este să "
-    "găsești website-ul OFICIAL al firmei și un scurt profil web. "
+    "găsești (1) CODUL FISCAL / CUI al firmei și (2) website-ul OFICIAL + un scurt profil. "
     "Ai la dispoziție unelte: search_web(query), fetch_page(url) și finish(...). "
-    "Lucrează în pași: caută, inspectează rezultatele, reformulează interogarea "
-    "dacă e nevoie (ex. elimină 'SRL', adaugă 'Romania' sau orașul din adresă), "
-    "deschide o pagină candidată ca să confirmi că firma apare pe ea, apoi cheamă "
-    "finish cu website-ul, un nivel de încredere 0-1 și un rezumat scurt în limba "
-    "română. Evită rețele sociale și directoare (linkedin, facebook etc.) ca "
-    "website oficial. Nu inventa — dacă nu găsești, raportează asta în finish."
+    "Lucrează în pași: caută firma (ex. 'NUME firma CUI cod fiscal', sau pe agregatoare "
+    "ca listafirme.ro / termene.ro / risco.ro / mfinante), deschide o pagină candidată cu "
+    "fetch_page și extrage CUI-ul (cod numeric, de obicei 6-9 cifre) confirmând că numele "
+    "firmei se potrivește. Reformulează interogarea dacă e nevoie (elimină 'SRL', adaugă "
+    "'Romania' sau orașul). Apoi cheamă finish cu cui (doar cifrele), website, încredere 0-1 "
+    "și un rezumat scurt în limba română. Evită rețele sociale ca website oficial. "
+    "Nu inventa — dacă nu găsești CUI-ul sau website-ul, lasă-le null în finish."
 )
 
 # ─── Tool definitions (OpenAI function-calling schema) ────────────────────────
@@ -78,6 +79,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "cui": {"type": ["string", "null"], "description": "codul fiscal/CUI (doar cifrele)"},
                     "website": {"type": ["string", "null"]},
                     "confidence": {"type": "number"},
                     "summary": {"type": "string"},
@@ -90,6 +92,25 @@ TOOLS = [
 
 _BLOCKED = ("linkedin.", "facebook.", "instagram.", "twitter.", "x.com",
             "wikipedia.", "youtube.", "google.")
+
+
+def valid_cui(cui) -> bool:
+    """Validate a Romanian CUI/CIF using the official control-digit checksum."""
+    s = re.sub(r"\D", "", str(cui or ""))
+    if not (2 <= len(s) <= 10):
+        return False
+    key = "753217532"
+    body, check = s[:-1], int(s[-1])
+    key = key[-len(body):]
+    total = sum(int(d) * int(k) for d, k in zip(body, key))
+    r = (total * 10) % 11
+    if r == 10:
+        r = 0
+    return r == check
+
+
+def _clean_cui(cui) -> str:
+    return re.sub(r"\D", "", str(cui or ""))
 
 
 # ─── Tools implementation ─────────────────────────────────────────────────────
@@ -157,6 +178,7 @@ def _serp_discover(name: Optional[str]) -> Optional[Dict[str, Any]]:
 
 def _fallback_stream(bundle: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
     name = bundle.get("company_name") or f"CUI {bundle.get('cui')}"
+    cui = str(bundle.get("cui")) if bundle.get("cui") else None
     serp = bundle.get("serp") or _serp_discover(bundle.get("company_name")) or {}
     yield {"type": "thought", "text": "Model LLM indisponibil — folosesc căutarea deterministă."}
     yield {"type": "tool_call", "tool": "search_web", "query": f"{name} official website"}
@@ -164,11 +186,11 @@ def _fallback_stream(bundle: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
     yield {"type": "tool_result", "tool": "search_web", "n": len(alts),
            "top": [{"title": a.get("domain"), "url": a.get("url")} for a in alts[:3]]}
     if serp.get("status") == "found" and serp.get("website"):
-        yield {"type": "answer", "website": serp.get("website"),
+        yield {"type": "answer", "cui": cui, "website": serp.get("website"),
                "confidence": serp.get("confidence", 0.0),
                "summary": f"Website probabil pentru {name}: {serp.get('website')}."}
     else:
-        yield {"type": "answer", "website": None, "confidence": 0.0,
+        yield {"type": "answer", "cui": cui, "website": None, "confidence": 0.0,
                "summary": f"Nu am putut confirma un website oficial pentru {name}."}
 
 
@@ -216,7 +238,8 @@ def run_web_research_stream(bundle: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
             yield {"type": "thought", "text": msg.content}
 
         if not tool_calls:
-            yield {"type": "answer", "website": None, "confidence": 0.0,
+            yield {"type": "answer", "cui": str(cui) if cui else None,
+                   "website": None, "confidence": 0.0,
                    "summary": msg.content or "Cercetare finalizată."}
             return
 
@@ -238,7 +261,12 @@ def run_web_research_stream(bundle: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
                 args = {}
 
             if fname == "finish":
+                raw_cui = args.get("cui")
+                cui_out = _clean_cui(raw_cui) if raw_cui else None
+                if cui_out and not valid_cui(cui_out):
+                    cui_out = None  # reject implausible CUIs (phone numbers, etc.)
                 yield {"type": "answer",
+                       "cui": cui_out or (str(cui) if cui else None),
                        "website": args.get("website"),
                        "confidence": float(args.get("confidence") or 0.0),
                        "summary": args.get("summary") or ""}
@@ -266,25 +294,27 @@ def run_web_research_stream(bundle: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
 
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": tool_content})
 
-    yield {"type": "answer", "website": None, "confidence": 0.0,
+    yield {"type": "answer", "cui": str(cui) if cui else None,
+           "website": None, "confidence": 0.0,
            "summary": "Nu am putut confirma un website oficial în pașii disponibili."}
 
 
 def run_web_research(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """Non-streaming variant: runs the agent and returns the final result + trace."""
     steps: List[Dict[str, Any]] = []
-    answer: Dict[str, Any] = {"website": None, "confidence": 0.0, "summary": ""}
+    answer: Dict[str, Any] = {"cui": None, "website": None, "confidence": 0.0, "summary": ""}
     used_llm = llm_available()
     for ev in run_web_research_stream(bundle):
         if ev.get("type") == "answer":
-            answer = {"website": ev.get("website"),
+            answer = {"cui": ev.get("cui"),
+                      "website": ev.get("website"),
                       "confidence": ev.get("confidence", 0.0),
                       "summary": ev.get("summary", "")}
         else:
             steps.append(ev)
     return {
         "agent": "web_research",
-        "cui": bundle.get("cui"),
+        "cui": answer["cui"] or bundle.get("cui"),
         "company_name": bundle.get("company_name"),
         "website": answer["website"],
         "confidence": answer["confidence"],

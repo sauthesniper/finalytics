@@ -98,6 +98,21 @@ test('glued alphanumeric name (INT80SRL) is parsed as analyze', () => {
     assert.match(r.companyName, /INT80SRL/);
 });
 
+test('bare lowercase name with SRL suffix is parsed as analyze', () => {
+    const r = parseMessage('int80 srl', {});
+    assert.strictEqual(r.intent, 'analyze');
+    assert.match(r.companyName, /int80 srl/i);
+});
+
+test('glued lowercase name ending in srl is parsed as analyze', () => {
+    const r = parseMessage('int80srl', {});
+    assert.strictEqual(r.intent, 'analyze');
+});
+
+test('common phrase with "sa" is NOT misread as a company', () => {
+    assert.strictEqual(parseMessage('ce sa fac acum', {}).intent, 'unknown');
+});
+
 // ── Document attachments added to the LLM context ──
 const { sanitizeDocuments } = require('../intent.js');
 
