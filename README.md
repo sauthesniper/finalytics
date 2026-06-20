@@ -2,6 +2,8 @@
 
 **Know before you trust. Decide before you risk.**
 
+> 🌐 **Live demo:** https://mds.liviu.ink — seeded accounts: `admin`/`admin123` (admin), `demo`/`demo123` (user). See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 Finalytics este o aplicație de business intelligence pentru companii din România care adună date fragmentate, le transformă în insight-uri clare și răspunde la întrebarea care chiar contează:
 
 > „Merită să colaborez cu firma asta?”
