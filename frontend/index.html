@@ -583,6 +583,7 @@
         </div>
     </div>
 
+<script src="intent.js"></script>
 <script>
 const SERP_KEY = 'dev-secret-key';
 let token = localStorage.getItem('ftoken');
@@ -726,40 +727,9 @@ function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-// ═══ Intent Detection ═══
+// ═══ Intent Detection (shared module: intent.js) ═══
 function parseMessage(text) {
-    const lower = text.toLowerCase();
-
-    // Balance / tokens
-    if (/cati.*tokens|tokens.*ai|balanta|balance|token.*left/.test(lower)) {
-        return { intent: 'balance' };
-    }
-
-    // Capabilities
-    if (/ce.*servicii|ce poti face|capabilities|ce stii|help|ajutor/.test(lower)) {
-        return { intent: 'help' };
-    }
-
-    // Extract CUI (8 digits, possibly prefixed with RO or C)
-    const cuiMatch = text.match(/\b[RC]?(\d{6,10})\b/i);
-    const cui = cuiMatch ? cuiMatch[1] : null;
-
-    // Extract company name (ALL CAPS words or text before CUI)
-    let companyName = null;
-    const capsMatch = text.match(/\b([A-ZĂÂÎȘȚ][A-ZĂÂÎȘȚ\s\.\-&]{2,}(?:\sSRL|\sSA|\sSRL-D|\sPFA)?)\b/);
-    if (capsMatch) companyName = capsMatch[1].trim();
-
-    // If no caps match, try to extract between analizeaza/verifica and CUI
-    if (!companyName) {
-        const m = text.match(/(?:analizeaza|verifica|informatii|despre)\s+([^,]+?)(?:\s+cu\s+CUI|\s+CUI|$)/i);
-        if (m) companyName = m[1].trim();
-    }
-
-    if (cui || companyName) {
-        return { intent: 'analyze', cui, companyName };
-    }
-
-    return { intent: 'unknown' };
+    return FinalyticsIntent.parseMessage(text, { lastCui, lastCompany });
 }
 
 // ═══ Handle Send ═══
@@ -801,6 +771,11 @@ async function handleSend() {
             return;
         }
         addBotMsg('Nu am inteles. Incearca <em>"analizeaza CUI 12345678"</em> sau <em>"verifica [nume firma]"</em>. Dupa o analiza, poti pune intrebari despre firma. Scrie <em>"help"</em> pentru optiuni.');
+        return;
+    }
+
+    if (parsed.intent === 'question') {
+        await askAI(text);
         return;
     }
 
