@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from pdf_to_json import pdf_to_json
 
 EDGE_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 EDGE_PROFILE = r"C:\temp\edge_onrc_profile"
@@ -145,25 +146,49 @@ def completeaza_si_descarca_pdf(page, cui: str):
         print("❌ Nu au apărut rezultate. Verifică dupa_cautare.png")
         return
 
-    page.locator("input[type='radio']").first.check(force=True)
+    radio_buttons = page.locator("input[type='radio']")
+    count = radio_buttons.count()
 
-    # Download PDF
-    with page.expect_download(timeout=60000) as download_info:
-        page.locator("#commonCompaniesListComponent_searchArticleButton").click()
+    json_paths = []
 
-    download = download_info.value
+    for i in range(count):
 
-    path = DATA_DIR / f"{cui}.pdf"
-    download.save_as(path)
+        print(f"⬇️ Descarc document {i + 1}/{count}")
 
-    print(f"✅ PDF salvat: {path}")
+        radio = radio_buttons.nth(i)
+        radio.check(force=True)
+
+        with page.expect_download(timeout=60000) as download_info:
+            page.locator(
+                "#commonCompaniesListComponent_searchArticleButton"
+            ).click()
+
+        download = download_info.value
+
+        path = DATA_DIR / f"{cui}_{i + 1}.pdf"
+
+        download.save_as(path)
+
+        print(f"✅ PDF salvat: {path}")
+
+        json_path = pdf_to_json(path)
+
+        print(f"✅ Conversie terminată: {json_path}")
+
+        json_paths.append(json_path)
+
+        page.wait_for_timeout(1000)
+
+    return json_paths
 
 
 def descarca_pdf_firma(context, cui: str):
     cui = cui.strip()
 
     page = gaseste_sau_deschide_berc(context)
-    completeaza_si_descarca_pdf(page, cui)
+    json_path = completeaza_si_descarca_pdf(page, cui)
+
+    return json_path
 
 
 if __name__ == "__main__":

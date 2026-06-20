@@ -168,6 +168,7 @@ def pdf_to_json(pdf_path: Path):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"✅ JSON salvat: {output_path}")
+    return output_path
     
 if __name__ == "__main__":
     pdf_files = list(PDF_DIR.glob("*.pdf"))
