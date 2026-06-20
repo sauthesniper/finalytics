@@ -57,6 +57,17 @@ def test_feedback_requires_auth(client):
     assert client.post("/feedback", json={"cui": "1", "rating": 5}).status_code == 401
 
 
+def test_feedback_average_aggregates(client, auth_headers):
+    """The UI shows an average rating; verify it aggregates multiple reviews (US10)."""
+    cui = "555555"
+    client.post("/feedback", json={"cui": cui, "rating": 4}, headers=auth_headers)
+    client.post("/feedback", json={"cui": cui, "rating": 2, "comment": "mixed"},
+                headers=auth_headers)
+    body = client.get(f"/feedback/{cui}").json()
+    assert body["count"] == 2
+    assert body["average_rating"] == 3.0
+
+
 # ── Alerts ────────────────────────────────────────────────────────────────
 
 def test_track_and_list_alerts(client, auth_headers):
@@ -100,6 +111,22 @@ def test_history_after_track(client, auth_headers):
     assert len(r.json()["snapshots"]) >= 1
 
 
+def test_history_after_export(client, auth_headers):
+    """Exporting a report records a snapshot, so the timeline (US5) fills up."""
+    cui = "770077"
+    assert client.get(f"/history/{cui}").json()["snapshots"] == []
+    client.post("/export", json={"cui": cui, "format": "json"}, headers=auth_headers)
+    snaps = client.get(f"/history/{cui}").json()["snapshots"]
+    assert len(snaps) >= 1
+    assert snaps[-1]["score"] == 82
+
+
+def test_history_empty_for_unknown(client):
+    r = client.get("/history/000999")
+    assert r.status_code == 200
+    assert r.json()["snapshots"] == []
+
+
 # ── Compare ───────────────────────────────────────────────────────────────
 
 def test_compare_requires_two(client, auth_headers):
@@ -112,6 +139,20 @@ def test_compare_ok(client, auth_headers):
                     headers=auth_headers)
     assert r.status_code == 200
     assert "ranking" in r.json()
+
+
+def test_compare_by_name(client, auth_headers):
+    """The UI may pass company names instead of CUIs (US7)."""
+    r = client.post("/compare", json={"companies": [
+        {"company_name": "ALPHA SRL"}, {"company_name": "BETA SRL"}
+    ]}, headers=auth_headers)
+    assert r.status_code == 200
+    assert "ranking" in r.json()
+
+
+def test_compare_requires_auth(client):
+    r = client.post("/compare", json={"companies": [{"cui": "1"}, {"cui": "2"}]})
+    assert r.status_code == 401
 
 
 # ── Export ────────────────────────────────────────────────────────────────

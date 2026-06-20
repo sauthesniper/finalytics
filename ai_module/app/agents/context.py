@@ -7,6 +7,10 @@ also keeps token usage (and hallucination surface) low.
 """
 from typing import Dict, Any
 
+# Caps for user-provided documents, to bound token usage / hallucination surface.
+MAX_DOCS = 8
+MAX_DOC_CHARS = 4000
+
 
 def build_context(bundle: Dict[str, Any], score: Dict[str, Any]) -> str:
     lines = []
@@ -53,4 +57,18 @@ def build_context(bundle: Dict[str, Any], score: Dict[str, Any]) -> str:
 
     lines.append("MOTIVE SCOR (pozitive): " + ("; ".join(score.get("positives") or []) or "niciunul"))
     lines.append("MOTIVE SCOR (negative): " + ("; ".join(score.get("negatives") or []) or "niciunul"))
+
+    docs = bundle.get("user_documents") or []
+    if docs:
+        lines.append("")
+        lines.append("DOCUMENTE FURNIZATE DE UTILIZATOR "
+                     "(folosește-le ca sursă suplimentară, alături de datele oficiale):")
+        for d in docs[:MAX_DOCS]:
+            name = (d.get("name") or "document").strip()
+            content = (d.get("content") or "").strip()[:MAX_DOC_CHARS]
+            if not content:
+                continue
+            lines.append(f"--- {name} ---")
+            lines.append(content)
+
     return "\n".join(lines)

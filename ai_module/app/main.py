@@ -26,12 +26,13 @@ from app.schemas import (
     AskRequest, AskResponse,
     CompareRequest, CompareResponse, CompareItem,
 )
-from app.aggregator import aggregate
+from app.aggregator import aggregate, aggregate_light
 from app.scoring import compute_score
 from app.agents import risk_analyst, sales_strategist, qa_agent
 from app.agents.risk_analyst import run_risk_analyst
 from app.agents.sales_strategist import run_sales_strategist
 from app.agents.qa_agent import run_qa
+from app.agents.web_research import run_web_research, run_web_research_stream
 from app.llm import llm_available, stream_chat, MODEL
 
 app = FastAPI(title="Finalytics AI Module", version="1.0.0")
@@ -52,6 +53,15 @@ def _require_ref(req) -> None:
         raise HTTPException(status_code=400, detail="Provide cui or company_name")
 
 
+def _attach_documents(bundle, req) -> None:
+    """Attach user-provided documents to the bundle so build_context includes them."""
+    docs = getattr(req, "documents", None) or []
+    if docs:
+        bundle["user_documents"] = [
+            {"name": d.name, "content": d.content} for d in docs
+        ]
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "ai-module", "llm": llm_available(), "model": MODEL}
@@ -68,6 +78,7 @@ def score(req: ScoreRequest):
 def agent_risk(req: AgentRequest):
     _require_ref(req)
     bundle = aggregate(req.cui, req.company_name)
+    _attach_documents(bundle, req)
     sc = compute_score(bundle)
     return run_risk_analyst(bundle, sc)
 
@@ -76,8 +87,17 @@ def agent_risk(req: AgentRequest):
 def agent_sales(req: AgentRequest):
     _require_ref(req)
     bundle = aggregate(req.cui, req.company_name)
+    _attach_documents(bundle, req)
     sc = compute_score(bundle)
     return run_sales_strategist(bundle, sc)
+
+
+@app.post("/agent/web-research")
+def agent_web_research(req: AgentRequest):
+    """Agentic web research: actively searches the web for the company (US12)."""
+    _require_ref(req)
+    bundle = aggregate_light(req.cui, req.company_name)
+    return run_web_research(bundle)
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -86,6 +106,7 @@ def ask(req: AskRequest):
     if not req.question or not req.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
     bundle = aggregate(req.cui, req.company_name)
+    _attach_documents(bundle, req)
     sc = compute_score(bundle)
     return run_qa(bundle, sc, req.question.strip())
 
@@ -95,6 +116,7 @@ def analyze(req: ScoreRequest):
     """Score + Risk Analyst + Sales Strategist in a single round trip."""
     _require_ref(req)
     bundle = aggregate(req.cui, req.company_name)
+    _attach_documents(bundle, req)
     sc = compute_score(bundle)
     return {
         "score": sc,
@@ -179,6 +201,7 @@ def analyze_stream(req: ScoreRequest):
     def gen():
         yield _sse("status", {"msg": "aggregating"})
         bundle = aggregate(req.cui, req.company_name)
+        _attach_documents(bundle, req)
         sc = compute_score(bundle)
         yield _sse("score", sc)
 
@@ -212,6 +235,21 @@ def analyze_stream(req: ScoreRequest):
     return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
+@app.post("/agent/web-research/stream")
+def agent_web_research_stream(req: AgentRequest):
+    """Stream the agentic web-research loop step-by-step (SSE)."""
+    _require_ref(req)
+
+    def gen():
+        yield _sse("status", {"msg": "aggregating"})
+        bundle = aggregate_light(req.cui, req.company_name)
+        for step in run_web_research_stream(bundle):
+            yield _sse(step.get("type", "step"), step)
+        yield _sse("done", {})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
 @app.post("/ask/stream")
 def ask_stream(req: AskRequest):
     """Stream a Q&A answer token-by-token (US9)."""
@@ -222,6 +260,7 @@ def ask_stream(req: AskRequest):
     def gen():
         yield _sse("status", {"msg": "thinking"})
         bundle = aggregate(req.cui, req.company_name)
+        _attach_documents(bundle, req)
         sc = compute_score(bundle)
         used = llm_available()
         yield _sse("start", {"model": MODEL if used else "rule-based-fallback", "used_llm": used})

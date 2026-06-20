@@ -31,6 +31,16 @@ Finalytics ships **two AI agents that are part of the product functionality**
 
 A third **Q&A agent** (US9) answers free-form questions about a company.
 
+A fourth **Web Research Agent** is *agentic* (ReAct-style): it runs a reasoning
+loop with OpenAI function-calling tools — `search_web(query)` (via the serp-api
+`/search` endpoint) and `fetch_page(url)` (download + verify the company name/CUI
+appears) — to actively find the official website. It reformulates queries
+(drops "SRL", adds "Romania"/city), confirms by opening a page, and streams every
+step (`tool_call`/`tool_result`/`answer`) so the UI shows a live search timeline.
+Bounded by `WEB_RESEARCH_MAX_STEPS` with a deterministic fallback when no LLM is
+configured. See `ai_module/app/agents/web_research.py` and
+`ai_module/tests/test_web_research.py`.
+
 ### Grounding & anti-hallucination
 
 All agents receive a compact, factual context built from real data
@@ -39,6 +49,17 @@ context. When the LLM is unavailable, deterministic fallbacks keep the product
 working — important because the lab notes that small/local models may
 hallucinate. The model is configurable via `OPENAI_MODEL` and can point at a
 local OpenAI-compatible endpoint.
+
+### User-attached documents (RAG-style context)
+
+Users can attach arbitrary text documents in the chat (📎) — e.g. a contract or
+internal note. These are sanitized and size-capped client-side
+(`FinalyticsIntent.sanitizeDocuments`), sent on the `documents` field of the
+AI requests, and appended to the grounding context under
+"DOCUMENTE FURNIZATE DE UTILIZATOR" (`ai_module/app/agents/context.py`, capped
+by `MAX_DOCS`/`MAX_DOC_CHARS`). All three agents (Risk, Sales, Q&A) then reason
+over the official data **plus** the user's documents. Covered by
+`ai_module/tests/test_context.py` and `frontend/tests/intent.test.js`.
 
 ### Agent evals
 

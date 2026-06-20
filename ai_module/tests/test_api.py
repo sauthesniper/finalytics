@@ -18,9 +18,10 @@ client = TestClient(app)
 def patch_aggregate(monkeypatch):
     """Return a fixture bundle based on the requested CUI."""
     def fake_aggregate(cui, company_name):
-        if cui == RISKY_BUNDLE["cui"]:
-            return RISKY_BUNDLE
-        return HEALTHY_BUNDLE
+        base = RISKY_BUNDLE if cui == RISKY_BUNDLE["cui"] else HEALTHY_BUNDLE
+        # Return a fresh copy: endpoints may attach documents to the bundle,
+        # and we must not mutate the shared fixture across tests.
+        return dict(base)
     # Patch the symbol imported into main
     monkeypatch.setattr(main_module, "aggregate", fake_aggregate)
 
@@ -67,6 +68,25 @@ def test_ask_requires_question():
     assert r.status_code == 400
 
 
+def test_ask_accepts_user_documents():
+    r = client.post("/ask", json={
+        "cui": "14388248",
+        "question": "Ce termen de plata are contractul?",
+        "documents": [{"name": "contract.txt", "content": "Termen de plata 90 de zile."}],
+    })
+    assert r.status_code == 200
+    assert r.json()["answer"]
+
+
+def test_analyze_accepts_user_documents():
+    r = client.post("/analyze", json={
+        "cui": "14388248",
+        "documents": [{"name": "note.txt", "content": "Plati intarziate in trecut."}],
+    })
+    assert r.status_code == 200
+    assert "risk_analyst" in r.json()
+
+
 def test_analyze_endpoint():
     r = client.post("/analyze", json={"cui": "14388248"})
     assert r.status_code == 200
@@ -88,3 +108,28 @@ def test_compare_endpoint():
 def test_compare_needs_two():
     r = client.post("/compare", json={"companies": [{"cui": "14388248"}]})
     assert r.status_code == 422  # pydantic min_length
+
+
+def test_web_research_endpoint(monkeypatch):
+    import app.agents.web_research as wr
+    monkeypatch.setattr(wr, "llm_available", lambda: False)  # hermetic: no live LLM
+    monkeypatch.setattr(main_module, "aggregate_light", lambda c, n: dict(HEALTHY_BUNDLE))
+    r = client.post("/agent/web-research", json={"cui": "14388248"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["agent"] == "web_research"
+    assert "steps" in body
+    # HEALTHY_BUNDLE has a serp website -> fallback surfaces it
+    assert body["website"] == "https://internetteam.ro"
+
+
+def test_web_research_stream_endpoint(monkeypatch):
+    import app.agents.web_research as wr
+    monkeypatch.setattr(wr, "llm_available", lambda: False)
+    monkeypatch.setattr(main_module, "aggregate_light", lambda c, n: dict(HEALTHY_BUNDLE))
+    r = client.post("/agent/web-research/stream", json={"cui": "14388248"})
+    assert r.status_code == 200
+    # SSE stream must contain the start and answer events.
+    assert "event: start" in r.text
+    assert "event: answer" in r.text
+    assert "event: done" in r.text

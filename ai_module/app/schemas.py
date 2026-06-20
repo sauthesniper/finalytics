@@ -4,10 +4,20 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
+class UserDocument(BaseModel):
+    """An arbitrary text document supplied by the user to ground the agents."""
+    name: Optional[str] = None
+    content: str
+
+
 class CompanyRef(BaseModel):
     """A reference to a company by CUI and/or name."""
     cui: Optional[str] = None
     company_name: Optional[str] = None
+    documents: List[UserDocument] = Field(
+        default_factory=list,
+        description="Optional user-provided documents added to the LLM context",
+    )
 
 
 class ScoreRequest(CompanyRef):

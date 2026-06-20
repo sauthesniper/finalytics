@@ -404,6 +404,44 @@
         .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .send-btn svg { width: 16px; height: 16px; fill: currentColor; }
 
+        /* Attach documents */
+        .attach-btn {
+            width: 34px; height: 34px;
+            border-radius: 10px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .attach-btn:hover { border-color: var(--orange); color: var(--orange); }
+        .attach-btn svg { width: 16px; height: 16px; }
+
+        .doc-chips {
+            display: none;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            max-width: 900px;
+            margin: 0 auto 0.5rem;
+        }
+        .doc-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 14px;
+            font-size: 0.72rem;
+            background: var(--orange-glow);
+            border: 1px solid var(--orange);
+            color: var(--orange);
+            max-width: 240px;
+        }
+        .doc-chip .doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .doc-chip .doc-remove { cursor: pointer; font-weight: 700; opacity: 0.8; }
+        .doc-chip .doc-remove:hover { opacity: 1; }
+
         .input-hint {
             max-width: 900px;
             margin: 0.4rem auto 0;
@@ -567,20 +605,30 @@
                         <h3>Capabilitati</h3>
                         <p>Vezi ce servicii pot rula pentru tine</p>
                     </div>
+                    <div class="welcome-card" onclick="quickAsk('compara CUI 14388248 cu CUI 49068564')">
+                        <svg class="welcome-card-icon" viewBox="0 0 20 20" fill="none"><path d="M4 16V8m6 8V4m6 12v-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                        <h3>Compara firme</h3>
+                        <p>Pune doua sau mai multe firme fata in fata</p>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Input -->
         <div class="input-area">
+            <div class="doc-chips" id="docChips"></div>
             <div class="input-wrap">
+                <button class="attach-btn" id="attachBtn" title="Atașează documente (txt, md, csv, json)" onclick="document.getElementById('docFile').click()">
+                    <svg viewBox="0 0 16 16" fill="none"><path d="M11 5L6 10a2 2 0 002.8 2.8l5-5a3.5 3.5 0 00-5-5l-5.2 5.2a5 5 0 007 7L13 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <input type="file" id="docFile" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.text,text/*" style="display:none" onchange="handleDocUpload(event)" />
                 <textarea id="chatInput" placeholder="Intreaba despre o firma... (ex: analizeaza CUI 14388248)" rows="1"></textarea>
                 <button class="send-btn" id="sendBtn" onclick="handleSend()">
                     <svg viewBox="0 0 16 16" fill="none"><path d="M2 8l12-6-4 14-2-6-6-2z" fill="currentColor"/></svg>
                 </button>
             </div>
             <div class="input-hint">
-                Apasa <kbd>Enter</kbd> pentru a trimite, <kbd>Shift+Enter</kbd> pentru linie noua
+                Apasa <kbd>Enter</kbd> pentru a trimite, <kbd>Shift+Enter</kbd> pentru linie noua · ataseaza documente cu 📎
             </div>
         </div>
     </div>
@@ -594,6 +642,56 @@ let activeSvcs = {serp:true, anaf:true, intel:true, berc:true, ai:true};
 const COSTS = {serp:2, anaf:1, intel:3, berc:5, ai:4};
 let lastCompany = null;   // remembered context for Q&A (US9)
 let lastCui = null;
+let attachedDocs = [];    // user-attached documents added to the LLM context
+
+// ═══ Document attachments (added to LLM context) ═══
+const MAX_DOCS = 8;
+const MAX_DOC_CHARS = 8000;
+const MAX_DOC_BYTES = 300 * 1024; // 300 KB per file
+
+function handleDocUpload(e) {
+    const files = Array.from(e.target.files || []);
+    for (const f of files) {
+        if (attachedDocs.length >= MAX_DOCS) {
+            addBotMsg(`Poti atasa maxim ${MAX_DOCS} documente.`);
+            break;
+        }
+        if (f.size > MAX_DOC_BYTES) {
+            addBotMsg(`Documentul <strong>${escapeHtml(f.name)}</strong> e prea mare (max 300KB text).`);
+            continue;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            attachedDocs.push({ name: f.name, content: String(reader.result || '').slice(0, MAX_DOC_CHARS) });
+            renderDocChips();
+        };
+        reader.onerror = () => addBotMsg(`Nu am putut citi <strong>${escapeHtml(f.name)}</strong>.`);
+        reader.readAsText(f);
+    }
+    e.target.value = '';
+}
+
+function removeDoc(i) {
+    attachedDocs.splice(i, 1);
+    renderDocChips();
+}
+
+function renderDocChips() {
+    const c = document.getElementById('docChips');
+    if (!attachedDocs.length) { c.style.display = 'none'; c.innerHTML = ''; return; }
+    c.style.display = 'flex';
+    c.innerHTML = attachedDocs.map((d, i) => `
+        <span class="doc-chip" title="${escapeHtml(d.name)}">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M4 1h6l3 3v11H4z" stroke="currentColor" stroke-width="1.2"/><path d="M10 1v3h3" stroke="currentColor" stroke-width="1.2"/></svg>
+            <span class="doc-name">${escapeHtml(d.name)}</span>
+            <span class="doc-remove" onclick="removeDoc(${i})">✕</span>
+        </span>`).join('');
+}
+
+// Sanitized payload for the LLM (shared logic is unit-tested in intent.js).
+function docsPayload() {
+    return FinalyticsIntent.sanitizeDocuments(attachedDocs, { maxDocs: MAX_DOCS, maxChars: MAX_DOC_CHARS });
+}
 
 // ═══ Init ═══
 if (token && user) showApp(); else showAuth();
@@ -761,7 +859,7 @@ async function handleSend() {
                 <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--orange)" stroke-width="1.2"><path d="M4 2h8l2 2v10a1 1 0 01-1 1H3a1 1 0 01-1-1V4l2-2z"/><path d="M5 7h6M5 9.5h4" stroke-linecap="round"/></svg> <strong>BERC</strong> - raport ONRC articole publicate (5 tokens)</div>
                 <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="var(--orange)"><path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z"/></svg> <strong>AI Score</strong> - scor colaborare 0-100 + 2 agenti AI (risc & vanzari) (4 tokens)</div>
             </div>
-            <br>Spune-mi <em>"analizeaza CUI 14388248"</em>. Dupa analiza poti <strong>pune intrebari</strong> despre firma, <strong>exporta raport</strong> PDF/JSON sau o poti <strong>monitoriza</strong>.
+            <br>Spune-mi <em>"analizeaza CUI 14388248"</em>. Dupa analiza poti <strong>pune intrebari</strong> despre firma, <strong>exporta raport</strong> PDF/JSON, vedea <strong>istoricul</strong>, lasa <strong>feedback</strong> sau o poti <strong>monitoriza</strong>. Pentru comparatie scrie <em>"compara CUI 14388248 cu CUI 49068564"</em>.
         `);
         return;
     }
@@ -778,6 +876,11 @@ async function handleSend() {
 
     if (parsed.intent === 'question') {
         await askAI(text);
+        return;
+    }
+
+    if (parsed.intent === 'compare') {
+        await runCompare(parsed.companies);
         return;
     }
 
@@ -820,6 +923,9 @@ async function runAnalysis(companyName, cui) {
     // Build initial card layout
     const cards = {};
     let html = `Analizez ${companyName?`<strong>${escapeHtml(companyName)}</strong>`:''}${cui?` <span style="color:var(--text-muted)">(CUI: ${cui})</span>`:''}...`;
+    if (attachedDocs.length) {
+        html += `<div style="font-size:0.72rem;color:var(--orange);margin-top:0.3rem">📎 ${attachedDocs.length} document(e) incluse in contextul AI</div>`;
+    }
 
     if (svcs.includes('serp')) {
         cards.serp = makeCard('serp', 'Website Discovery', '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" fill="none" stroke="currentColor" stroke-width="1"/>');
@@ -838,6 +944,8 @@ async function runAnalysis(companyName, cui) {
         html += cards.berc;
     }
     if (svcs.includes('ai')) {
+        cards.research = makeCard('research', 'Web Research Agent (AI)', '<circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M11 11l4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M7 4.5l0.6 1.4L9 6.5l-1.4 0.6L7 8.5l-0.6-1.4L5 6.5l1.4-0.6L7 4.5z" fill="currentColor"/>');
+        html += cards.research;
         cards.score = makeCard('score', 'Collaboration Health Score', '<path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z" fill="currentColor"/>');
         html += cards.score;
         cards.risk = makeCard('risk', 'Risk Analyst Agent (AI)', '<path d="M8 1l7 13H1L8 1z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 6v4M8 12v0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>');
@@ -875,8 +983,13 @@ async function runAnalysis(companyName, cui) {
         else setCard(msgEl, 'berc', 'error', 'Necesita CUI');
     }
     if (svcs.includes('ai')) {
-        if (cui || companyName) promises.push(runAI(companyName, cui, msgEl));
-        else { setCard(msgEl, 'score', 'error', 'Necesita CUI sau nume'); }
+        if (cui || companyName) {
+            promises.push(runWebResearch(companyName, cui, msgEl));
+            promises.push(runAI(companyName, cui, msgEl));
+        } else {
+            setCard(msgEl, 'research', 'error', 'Necesita CUI sau nume');
+            setCard(msgEl, 'score', 'error', 'Necesita CUI sau nume');
+        }
     }
 
     await Promise.allSettled(promises);
@@ -893,6 +1006,8 @@ async function runAnalysis(companyName, cui) {
                 <button class="btn btn-ghost" ${refAttr} onclick="exportReport(this,'pdf')">Export PDF</button>
                 <button class="btn btn-ghost" ${refAttr} onclick="exportReport(this,'json')">Export JSON</button>
                 <button class="btn btn-ghost" ${refAttr} onclick="trackCompany(this)">Monitorizeaza</button>
+                <button class="btn btn-ghost" ${refAttr} onclick="showHistory(this)">Istoric</button>
+                <button class="btn btn-ghost" ${refAttr} onclick="openFeedback(this)">Feedback</button>
             </div>`);
     }, 300);
 }
@@ -1136,12 +1251,78 @@ function streamCardFinalize(msgEl, type, text, usedLlm) {
     card.querySelector('.rich-card-body').innerHTML = `<div style="margin-bottom:0.4rem">${badge}</div>` + formatStreamText(text);
 }
 
+// ═══ Agentic Web Research Agent (live timeline) ═══
+async function runWebResearch(name, cui, msgEl) {
+    const card = msgEl.querySelector('[data-card="research"]');
+    if (!card) return;
+    const steps = [];
+    let usedLlm = false;
+
+    function setStatus(html, cls) {
+        const st = card.querySelector('.rich-card-status');
+        st.className = 'rich-card-status ' + cls;
+        st.innerHTML = html;
+    }
+    function render(done, answer) {
+        let h = '';
+        if (steps.length) {
+            h += '<div style="display:flex;flex-direction:column;gap:0.3rem;font-size:0.75rem">';
+            for (const s of steps) {
+                if (s.type === 'thought')
+                    h += `<div style="color:var(--text-secondary)">💭 ${escapeHtml(s.text || '')}</div>`;
+                else if (s.type === 'tool_call' && s.tool === 'search_web')
+                    h += `<div style="color:var(--orange)">🔍 Caut: „${escapeHtml(s.query || '')}”</div>`;
+                else if (s.type === 'tool_call' && s.tool === 'fetch_page')
+                    h += `<div style="color:var(--orange)">🌐 Verific pagina: ${escapeHtml((s.url || '').replace(/^https?:\/\//, ''))}</div>`;
+                else if (s.type === 'tool_result' && s.tool === 'search_web') {
+                    const top = (s.top || []).map(t => escapeHtml((t.url || '').replace(/^https?:\/\//, '').replace(/\/.*$/, ''))).join(', ');
+                    h += `<div style="color:var(--text-muted);padding-left:1.1rem">→ ${s.n} rezultate${top ? ': ' + top : ''}</div>`;
+                } else if (s.type === 'tool_result' && s.tool === 'fetch_page')
+                    h += `<div style="padding-left:1.1rem;color:${s.verified ? 'var(--success)' : 'var(--text-muted)'}">→ ${s.verified ? 'firma confirmata ✓' : 'neconfirmat'}</div>`;
+            }
+            h += '</div>';
+        }
+        if (!done) h += '<span class="stream-cursor">▋</span>';
+        if (answer) {
+            const conf = Math.round((answer.confidence || 0) * 100);
+            h += '<div class="cost-line" style="margin-top:0.5rem">';
+            if (answer.website)
+                h += `<a href="${escapeHtml(answer.website)}" target="_blank" style="color:var(--orange)">${escapeHtml(answer.website)}</a> · incredere ${conf}%`;
+            else
+                h += escapeHtml(answer.summary || 'Niciun website oficial confirmat.');
+            h += '</div>';
+            if (answer.website && answer.summary)
+                h += `<div style="font-size:0.75rem;margin-top:0.3rem;color:var(--text-secondary)">${escapeHtml(answer.summary)}</div>`;
+        }
+        card.querySelector('.rich-card-body').innerHTML = h || '<span class="stream-cursor">▋</span>';
+        scrollBottom();
+    }
+
+    try {
+        await streamSSE('/api/ai/agent/web-research/stream', {cui: cui || null, company_name: name || null}, (event, data) => {
+            if (event === 'start') {
+                usedLlm = data.used_llm;
+                setStatus(`${usedLlm ? 'LLM' : 'rule-based'} <span class="spinner"></span>`, 'status-loading');
+                render(false);
+            } else if (event === 'thought' || event === 'tool_call' || event === 'tool_result') {
+                steps.push(data);
+                render(false);
+            } else if (event === 'answer') {
+                setStatus(`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 5l3 3 5-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Done`, 'status-done');
+                render(true, data);
+            }
+        });
+    } catch (e) {
+        setCard(msgEl, 'research', 'error', '<div>Agent web research indisponibil</div>');
+    }
+}
+
 // ═══ AI: streaming score + agents (US3, US4, US13, US14) ═══
 async function runAI(name, cui, msgEl) {
     let riskText = '', salesText = '';
     let riskLlm = false, salesLlm = false;
     try {
-        await streamSSE('/api/ai/analyze/stream', {cui: cui||null, company_name: name||null}, (event, data) => {
+        await streamSSE('/api/ai/analyze/stream', {cui: cui||null, company_name: name||null, documents: docsPayload()}, (event, data) => {
             switch (event) {
                 case 'score': setCard(msgEl, 'score', 'done', renderScoreCardHtml(data)); break;
                 case 'risk_start': riskLlm = data.used_llm; streamCardBadge(msgEl, 'risk', data.used_llm); break;
@@ -1169,7 +1350,7 @@ async function askAI(question) {
     const bubble = msg.querySelector('.msg-bubble');
     let text = '';
     try {
-        await streamSSE('/api/ai/ask/stream', {cui:lastCui, company_name:lastCompany, question}, (event, data) => {
+        await streamSSE('/api/ai/ask/stream', {cui:lastCui, company_name:lastCompany, question, documents: docsPayload()}, (event, data) => {
             if (event === 'start') {
                 bubble.innerHTML = '<span class="stream-cursor">▋</span>';
             } else if (event === 'delta') {
@@ -1235,6 +1416,191 @@ async function trackCompany(btn) {
         });
         btn.textContent = r.ok ? 'Monitorizat ✓' : 'Eroare';
     } catch(e) { btn.textContent = 'Eroare'; }
+}
+
+// ═══ Company history timeline (US5) ═══
+function sparkline(points) {
+    // points: array of {score, timestamp}. Render a small inline SVG sparkline.
+    if (!points.length) return '';
+    const W = 260, H = 60, pad = 6;
+    const xs = points.length === 1 ? [W/2] :
+        points.map((_, i) => pad + i * (W - 2*pad) / (points.length - 1));
+    const ys = points.map(p => H - pad - (Math.max(0, Math.min(100, p.score)) / 100) * (H - 2*pad));
+    const path = xs.map((x, i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+    const dots = xs.map((x, i) => {
+        const band = points[i].band;
+        const col = band==='healthy'?'var(--success)':band==='caution'?'var(--warning)':'var(--error)';
+        return `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="3" fill="${col}"/>`;
+    }).join('');
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="margin-top:0.4rem">
+        <path d="${path}" fill="none" stroke="var(--orange)" stroke-width="1.5"/>${dots}</svg>`;
+}
+
+async function showHistory(btn) {
+    const cui = btn.getAttribute('data-cui') || null;
+    const name = btn.getAttribute('data-name') || '';
+    if (!cui) { btn.textContent = 'Necesita CUI'; return; }
+    const msg = addTypingMsg();
+    const bubble = msg.querySelector('.msg-bubble');
+    try {
+        const r = await fetch('/api/backend/history/' + encodeURIComponent(cui));
+        if (!r.ok) throw new Error('history');
+        const d = await r.json();
+        const snaps = d.snapshots || [];
+        if (!snaps.length) {
+            bubble.innerHTML = `Nu exista inca istoric pentru <strong>${escapeHtml(name||cui)}</strong>.
+                Apasa <em>Monitorizeaza</em> sau exporta un raport ca sa salvezi puncte in timp; apoi rerularea analizei va completa evolutia scorului.`;
+            return;
+        }
+        let rows = '';
+        for (const s of snaps.slice(-12)) {
+            const ts = (s.timestamp || '').replace('T', ' ').slice(0, 16);
+            const col = s.band==='healthy'?'var(--success)':s.band==='caution'?'var(--warning)':'var(--error)';
+            rows += `<tr><td>${escapeHtml(ts)}</td><td style="color:${col};font-weight:600">${s.score ?? '-'}/100</td><td>${escapeHtml(s.band||'-')}</td></tr>`;
+        }
+        bubble.innerHTML = `
+            <div class="rich-card" style="margin-top:0">
+                <div class="rich-card-header">
+                    <div class="rich-card-icon"><svg viewBox="0 0 16 16"><path d="M2 14V2h1v11h11v1H2zm3-2l3-4 2 2 4-5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                    <span class="rich-card-title">Istoric scor — ${escapeHtml(name||cui)}</span>
+                    <span class="rich-card-status status-done">${snaps.length} puncte</span>
+                </div>
+                <div class="rich-card-body">
+                    ${sparkline(snaps)}
+                    <div class="mini-table" style="margin-top:0.5rem"><table><thead><tr><th>Data</th><th>Scor</th><th>Banda</th></tr></thead><tbody>${rows}</tbody></table></div>
+                </div>
+            </div>`;
+        scrollBottom();
+    } catch(e) {
+        bubble.innerHTML = '<span style="color:var(--error)">Nu s-a putut incarca istoricul.</span>';
+    }
+}
+
+// ═══ User feedback about collaboration (US10) ═══
+function openFeedback(btn) {
+    const cui = btn.getAttribute('data-cui') || '';
+    const name = btn.getAttribute('data-name') || '';
+    if (!cui) { btn.textContent = 'Necesita CUI'; return; }
+    const fid = 'fb-' + Date.now();
+    const stars = [1,2,3,4,5].map(n =>
+        `<span class="fb-star" data-val="${n}" onclick="setRating('${fid}',${n})" style="cursor:pointer;font-size:1.3rem;color:var(--text-muted)">★</span>`
+    ).join('');
+    const el = addBotMsg(`
+        <div id="${fid}" data-cui="${cui}" data-name="${escapeHtml(name)}" data-rating="0">
+            Cum a fost colaborarea cu <strong>${escapeHtml(name||cui)}</strong>?
+            <div style="margin:0.4rem 0">${stars}</div>
+            <textarea id="${fid}-c" placeholder="Comentariu (optional)" rows="2"
+                style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-family:inherit;font-size:0.82rem;padding:0.5rem;resize:vertical"></textarea>
+            <div style="margin-top:0.4rem;display:flex;gap:0.4rem">
+                <button class="btn btn-orange" onclick="submitFeedback('${fid}')">Trimite feedback</button>
+                <button class="btn btn-ghost" onclick="loadFeedback('${fid}')">Vezi feedback existent</button>
+            </div>
+            <div id="${fid}-msg" style="font-size:0.75rem;margin-top:0.35rem;color:var(--text-muted)"></div>
+        </div>`);
+    scrollBottom();
+}
+
+function setRating(fid, val) {
+    const box = document.getElementById(fid);
+    if (!box) return;
+    box.setAttribute('data-rating', String(val));
+    box.querySelectorAll('.fb-star').forEach(s => {
+        s.style.color = Number(s.dataset.val) <= val ? 'var(--orange)' : 'var(--text-muted)';
+    });
+}
+
+async function submitFeedback(fid) {
+    const box = document.getElementById(fid);
+    const cui = box.getAttribute('data-cui');
+    const rating = parseInt(box.getAttribute('data-rating'), 10);
+    const comment = document.getElementById(fid + '-c').value.trim() || null;
+    const out = document.getElementById(fid + '-msg');
+    if (!rating) { out.textContent = 'Alege un rating (1-5 stele).'; return; }
+    out.textContent = 'Se trimite...';
+    try {
+        const r = await fetch('/api/backend/feedback', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+            body: JSON.stringify({cui, rating, comment})
+        });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail||'fail'); }
+        out.style.color = 'var(--success)';
+        out.textContent = 'Multumim! Feedback salvat.';
+        loadFeedback(fid);
+    } catch(e) {
+        out.style.color = 'var(--error)';
+        out.textContent = 'Eroare: ' + e.message;
+    }
+}
+
+async function loadFeedback(fid) {
+    const box = document.getElementById(fid);
+    const cui = box.getAttribute('data-cui');
+    const out = document.getElementById(fid + '-msg');
+    try {
+        const r = await fetch('/api/backend/feedback/' + encodeURIComponent(cui));
+        const d = await r.json();
+        if (!d.count) { out.style.color = 'var(--text-muted)'; out.textContent = 'Inca nu exista feedback pentru aceasta firma.'; return; }
+        let items = '';
+        for (const it of d.items.slice(-5)) {
+            items += `<div class="field-row"><span class="field-label">${'★'.repeat(it.rating)} ${escapeHtml(it.username||'')}</span><span class="field-value">${escapeHtml(it.comment||'')}</span></div>`;
+        }
+        out.style.color = 'var(--text-secondary)';
+        out.innerHTML = `<div style="margin-top:0.3rem">Rating mediu: <strong style="color:var(--orange)">${d.average_rating}</strong> (${d.count} recenzii)</div>${items}`;
+    } catch(e) {
+        out.style.color = 'var(--error)';
+        out.textContent = 'Nu s-a putut incarca feedback-ul.';
+    }
+}
+
+// ═══ Compare 2+ companies (US7) ═══
+async function runCompare(companies) {
+    const msg = addTypingMsg();
+    const bubble = msg.querySelector('.msg-bubble');
+    const payload = companies.map(c => ({cui: c.cui || null, company_name: c.companyName || null}));
+    try {
+        const r = await fetch('/api/backend/compare', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+            body: JSON.stringify({companies: payload})
+        });
+        if (!r.ok) {
+            const e = await r.json().catch(()=>({}));
+            bubble.innerHTML = `<span style="color:var(--error)">Eroare comparatie: ${escapeHtml(e.detail||'indisponibil')}</span>`;
+            return;
+        }
+        const d = await r.json();
+        const items = d.items || [];
+        let rows = '';
+        items.forEach((it, idx) => {
+            const col = it.band==='healthy'?'var(--success)':it.band==='caution'?'var(--warning)':'var(--error)';
+            const crown = idx === 0 ? ' 👑' : '';
+            const pos = (it.positives||[]).slice(0,2).map(escapeHtml).join('<br>') || '-';
+            const neg = (it.negatives||[]).slice(0,2).map(escapeHtml).join('<br>') || '-';
+            rows += `<tr>
+                <td>${escapeHtml(it.company_name || it.cui || '-')}${crown}</td>
+                <td style="color:${col};font-weight:700">${it.score}/100</td>
+                <td style="color:${col}">${escapeHtml(it.band||'-')}</td>
+                <td style="color:#4ade80">${pos}</td>
+                <td style="color:#fca5a5">${neg}</td>
+            </tr>`;
+        });
+        bubble.innerHTML = `
+            <div class="rich-card" style="margin-top:0">
+                <div class="rich-card-header">
+                    <div class="rich-card-icon"><svg viewBox="0 0 16 16"><path d="M3 13V7m5 6V3m5 10V9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+                    <span class="rich-card-title">Comparatie firme (${items.length})</span>
+                    <span class="rich-card-status status-done">clasament</span>
+                </div>
+                <div class="rich-card-body">
+                    <div class="mini-table"><table><thead><tr><th>Firma</th><th>Scor</th><th>Risc</th><th>Plusuri</th><th>Minusuri</th></tr></thead><tbody>${rows}</tbody></table></div>
+                    <div class="cost-line" style="margin-top:0.6rem"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z" fill="currentColor"/></svg> ${escapeHtml(d.recommendation||'')}</div>
+                </div>
+            </div>`;
+        scrollBottom();
+    } catch(e) {
+        bubble.innerHTML = '<span style="color:var(--error)">Nu s-a putut realiza comparatia.</span>';
+    }
 }
 
 // ═══ Welcome quick-ask ═══

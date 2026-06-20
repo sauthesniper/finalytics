@@ -66,6 +66,32 @@ def _fetch_serp(company_name: Optional[str]) -> Optional[Dict[str, Any]]:
         return None
 
 
+def aggregate_light(cui: Optional[str], company_name: Optional[str]) -> Dict[str, Any]:
+    """
+    Minimal bundle for the Web Research Agent: ANAF only.
+
+    The agent does its own active web searching, so it does NOT need the slow
+    intel scrape or the deterministic SERP discovery — it just needs the
+    company name and address (to enrich its queries). This avoids re-running
+    the heavy aggregation a second time per analysis.
+    """
+    bundle: Dict[str, Any] = {
+        "cui": cui,
+        "company_name": company_name,
+        "anaf": None,
+        "serp": None,
+        "sources": [],
+    }
+    if cui:
+        anaf = _fetch_anaf(cui)
+        if anaf:
+            bundle["anaf"] = anaf
+            bundle["sources"].append("anaf")
+            if not company_name and anaf.get("denumire"):
+                bundle["company_name"] = anaf["denumire"]
+    return bundle
+
+
 def aggregate(cui: Optional[str], company_name: Optional[str]) -> Dict[str, Any]:
     """
     Gather all available data for a company into a single bundle.

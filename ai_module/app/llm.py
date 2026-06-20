@@ -91,3 +91,29 @@ def stream_chat(system_prompt: str, user_prompt: str,
                 yield delta
     except Exception:
         return
+
+
+def chat_with_tools(messages: list, tools: list,
+                    temperature: float = 0.2, max_tokens: int = 700):
+    """
+    Run a tool-enabled chat completion (OpenAI function calling).
+
+    Returns (message, used_llm) where ``message`` is the assistant message
+    object (it may carry ``tool_calls``). On any failure returns (None, False)
+    so the caller can fall back to the deterministic path.
+    """
+    client = _get_client()
+    if client is None:
+        return None, False
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message, True
+    except Exception:
+        return None, False

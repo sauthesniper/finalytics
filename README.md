@@ -118,6 +118,17 @@ Finalytics integrează 2 agenți AI funcționali în aplicație:
 
 ---
 
+### 3. 🔎 Web Research Agent (agentic, ReAct cu tools)
+
+- caută **activ** firma pe web printr-o buclă de raționament cu unelte:
+  `search_web(query)` → evaluează rezultate → reformulează (ex. fără „SRL”,
+  + „Romania”, + orașul din adresa ANAF) → `fetch_page(url)` ca să confirme →
+  decide website-ul oficial
+- pașii se văd live în chat (timeline: „🔍 Caut… → N rezultate → verific… → confirmat”)
+- guardrails: `max_steps`, timeout, fallback determinist când nu există `OPENAI_API_KEY`
+
+---
+
 ## ⚙️ Funcționalități principale
 
 - 🔎 Search companie după CUI / nume  
@@ -128,6 +139,7 @@ Finalytics integrează 2 agenți AI funcționali în aplicație:
 - 🧾 Integrare date publice (ANAF, ONRC, data.gov)  
 - 🌐 Data enrichment (web presence, footprint)  
 - 👤 User feedback (experiențe reale de colaborare)  
+- 📎 Documente atașate în chat (contracte, note) adăugate în contextul agenților AI  
 - 📁 Export raport (PDF / JSON)  
 - 🔌 API pentru integrare externă  
 
