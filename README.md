@@ -131,59 +131,95 @@ Finalytics integrează 2 agenți AI funcționali în aplicație:
 
 ---
 
-## 🧪 User Stories
+## 🧪 User Stories (15) și unde sunt implementate
 
-- Ca utilizator, vreau să caut o firmă după CUI  
-- Ca utilizator, vreau să văd un scor de risc  
-- Ca utilizator, vreau explicații pentru scor  
-- Ca utilizator, vreau să văd istoricul firmei  
-- Ca utilizator, vreau să primesc alerte  
-- Ca utilizator, vreau să compar firme  
-- Ca utilizator, vreau recomandări de colaborare  
-- Ca utilizator, vreau să adaug feedback propriu  
-- Ca utilizator, vreau să export un raport  
-- Ca utilizator, vreau să întreb AI-ul despre firmă  
+| # | User story | Status | Implementare |
+|---|------------|--------|--------------|
+| US1 | Caută firmă după CUI / nume | ✅ | `frontend` parser intent + `anaf-api` |
+| US2 | Profil complet companie | ✅ | carduri ANAF / Intel / BERC în UI |
+| US3 | Collaboration Health Score | ✅ | `ai_module/app/scoring.py` |
+| US4 | Explicații pentru scor | ✅ | piloni + `reasons` în scoring |
+| US5 | Istoricul firmei în timp | ✅ | `backend` snapshots + `GET /history/{cui}` |
+| US6 | Alerte la schimbări de risc | ✅ | `backend` `/alerts/*` |
+| US7 | Compară firme | ✅ | `ai-api /compare`, `backend /compare` |
+| US8 | Recomandări de colaborare | ✅ | Sales Strategist Agent |
+| US9 | Întreabă AI-ul despre firmă | ✅ | Q&A agent `ai-api /ask` |
+| US10 | Feedback propriu | ✅ | `backend` `/feedback` |
+| US11 | Export raport PDF/JSON | ✅ | `backend /export` (fpdf2) |
+| US12 | Integrare date publice & enrichment | ✅ | `anaf-api`, `intel-api`, `serp-api` |
+| US13 | Risk Analyst Agent | ✅ | `ai_module/app/agents/risk_analyst.py` |
+| US14 | Sales Strategist Agent | ✅ | `ai_module/app/agents/sales_strategist.py` |
+| US15 | API extern pentru integrare | ✅ | toate serviciile expun REST + OpenAPI `/docs` |
 
----
-
-## 🧱 Arhitectură (high-level)
-
-- Frontend: React / Next.js  
-- Backend: Node.js / Python  
-- Data ingestion layer (ETL)  
-- Scoring engine  
-- AI agents layer  
-- Database (PostgreSQL / NoSQL)  
-- External APIs (ANAF, ONRC, etc)  
+Backlog complet (Trello export): `ecgBGkcl - finalytics-backlog.json`
 
 ---
 
-## 🔁 Dev Process (AI-driven 💥)
+## 🧱 Arhitectură (as-built)
 
-### 📌 Backlog & Planning
-- user stories generate cu AI  
-- prioritizare asistată  
+Finalytics este un set de microservicii **FastAPI** în spatele unui reverse
+proxy **nginx**, plus un UI single-page. Fiecare modul are propria imagine
+Docker și este orchestrat de `docker-compose.yml`.
 
-### 🔀 Source Control
-- Git + feature branches  
-- pull requests  
-- minim 5 commits / student  
+| Serviciu | Port | Rol |
+|----------|------|-----|
+| `frontend` | 8080 | nginx + UI chat (HTML/CSS/JS) |
+| `backend` | 8010 | auth, RBAC, token economy, feedback, alerts, history, export |
+| `ai-api` | 8003 | scoring engine + 2 agenți AI + Q&A + compare |
+| `anaf-api` | 8002 | proxy ANAF (TVA, e-Factura, stare fiscală) |
+| `intel-api` | 8000 | Monitorul Oficial + ONRC BPI (insolvență) |
+| `serp-api` | 3000 | descoperire website oficial |
+| `berc-api` | 8001 | rapoarte ONRC BERC |
 
-### 🧪 Testing
-- unit tests  
-- integration tests  
-- agent evals (important!)  
+Diagrame complete (componente, secvență, scoring, agenți, workflow git):
+👉 [`docs/architecture.md`](docs/architecture.md)
 
-### 🐞 Bug Tracking
-- issues + fix prin PR  
+---
 
-### ⚙️ CI/CD
-- build + test automat  
-- deploy staging / demo  
+## ▶️ Cum rulezi
 
-### 🤖 AI Usage
-- code generation  
-- test generation  
-- debugging  
-- arhitectură  
-- documentație  
+```bash
+# 1. Configurează secretele
+cp .env.example .env
+#   completează OPENAI_API_KEY (pentru agenții AI) și restul cheilor
+
+# 2. Pornește tot stackul
+docker compose up --build
+
+# 3. Deschide UI-ul
+#    http://localhost:8080
+#    cont demo: demo / demo123   |   admin: admin / admin123
+```
+
+Agenții AI rulează cu OpenAI dacă `OPENAI_API_KEY` e setat; altfel folosesc un
+fallback determinist, astfel încât aplicația funcționează oricum. `OPENAI_MODEL`
+poate fi îndreptat și către un model local compatibil OpenAI.
+
+### Teste
+
+```bash
+cd ai_module && pip install -r requirements.txt pytest httpx && pytest   # scoring + agent evals
+cd backend   && pip install -r requirements.txt pytest httpx && pytest   # auth + features
+```
+
+---
+
+## 🔁 Dev Process (AI-driven) — livrabile MDS
+
+| Cerință SOW (componenta B) | Unde se găsește |
+|----------------------------|-----------------|
+| User stories (min 10) + backlog | `ecgBGkcl - finalytics-backlog.json`, secțiunea User Stories de mai sus |
+| Diagrame (componente, secvență, workflow) | [`docs/architecture.md`](docs/architecture.md) |
+| Source control (branch, merge, PR, ≥5 commits/student) | istoric git: `feature/full-mvp-implementation`, `fix/intent-detection-tva` + Pull Requests |
+| Teste automate + eval-uri agenți | `ai_module/tests/`, `backend/tests/` |
+| Raportare bug + fix prin PR | [`docs/BUGS.md`](docs/BUGS.md) + PR `fix/intent-detection-tva` |
+| Pipeline CI/CD | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| Raport folosire tooluri AI | [`docs/AI_USAGE.md`](docs/AI_USAGE.md) |
+
+### 🤖 Cei 2 agenți AI (funcționalitate de produs)
+
+- **Risk Analyst Agent** — explică riscul în limbaj natural (US13)
+- **Sales Strategist Agent** — recomandări comerciale adaptate la risc (US14)
+
+Ambii sunt grounded pe date reale și au eval-uri în `ai_module/tests/test_agents.py`.
+

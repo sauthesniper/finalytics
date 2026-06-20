@@ -525,6 +525,10 @@
                 <svg viewBox="0 0 16 16"><path d="M4 2h8l2 2v10a1 1 0 01-1 1H3a1 1 0 01-1-1V4l2-2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 7h6M5 9.5h4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
                 BERC
             </div>
+            <div class="svc-mini active" data-svc="ai" onclick="toggleSvc(this)">
+                <svg viewBox="0 0 16 16"><path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z" fill="currentColor"/></svg>
+                AI Score
+            </div>
             <div class="cost-pill">
                 <svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--orange)" stroke-width="1.5"/><path d="M8 5v6M6 7h4" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round"/></svg>
                 Cost pe analiza: <strong id="totalCost">11</strong>
@@ -583,8 +587,10 @@
 const SERP_KEY = 'dev-secret-key';
 let token = localStorage.getItem('ftoken');
 let user = JSON.parse(localStorage.getItem('fuser') || 'null');
-let activeSvcs = {serp:true, anaf:true, intel:true, berc:true};
-const COSTS = {serp:2, anaf:1, intel:3, berc:5};
+let activeSvcs = {serp:true, anaf:true, intel:true, berc:true, ai:true};
+const COSTS = {serp:2, anaf:1, intel:3, berc:5, ai:4};
+let lastCompany = null;   // remembered context for Q&A (US9)
+let lastCui = null;
 
 // ═══ Init ═══
 if (token && user) showApp(); else showAuth();
@@ -781,14 +787,20 @@ async function handleSend() {
                 <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--orange)" stroke-width="1.2"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M5 5h6M5 7.5h6M5 10h3"/></svg> <strong>ANAF</strong> - date fiscale, TVA, e-Factura (1 token)</div>
                 <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="var(--orange)"><path d="M3 12V8h2v4H3zm4 0V5h2v7H7zm4 0V3h2v9h-2z"/></svg> <strong>Intel</strong> - Monitorul Oficial + BPI insolventa (3 tokens)</div>
                 <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--orange)" stroke-width="1.2"><path d="M4 2h8l2 2v10a1 1 0 01-1 1H3a1 1 0 01-1-1V4l2-2z"/><path d="M5 7h6M5 9.5h4" stroke-linecap="round"/></svg> <strong>BERC</strong> - raport ONRC articole publicate (5 tokens)</div>
+                <div style="display:flex;gap:0.5rem;align-items:center;"><svg width="14" height="14" viewBox="0 0 16 16" fill="var(--orange)"><path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z"/></svg> <strong>AI Score</strong> - scor colaborare 0-100 + 2 agenti AI (risc & vanzari) (4 tokens)</div>
             </div>
-            <br>Spune-mi <em>"analizeaza CUI 14388248"</em> sau <em>"verifica INTERNET TEAM SRL"</em>.
+            <br>Spune-mi <em>"analizeaza CUI 14388248"</em>. Dupa analiza poti <strong>pune intrebari</strong> despre firma, <strong>exporta raport</strong> PDF/JSON sau o poti <strong>monitoriza</strong>.
         `);
         return;
     }
 
     if (parsed.intent === 'unknown') {
-        addBotMsg('Nu am inteles. Incearca sa spui <em>"analizeaza CUI 12345678"</em> sau <em>"verifica [nume firma]"</em>. Scrie <em>"help"</em> pentru mai multe optiuni.');
+        // If we already analyzed a company, treat free text as a question (US9)
+        if (lastCui || lastCompany) {
+            await askAI(text);
+            return;
+        }
+        addBotMsg('Nu am inteles. Incearca <em>"analizeaza CUI 12345678"</em> sau <em>"verifica [nume firma]"</em>. Dupa o analiza, poti pune intrebari despre firma. Scrie <em>"help"</em> pentru optiuni.');
         return;
     }
 
@@ -848,6 +860,14 @@ async function runAnalysis(companyName, cui) {
         cards.berc = makeCard('berc', 'BERC Report (ONRC)', '<path d="M4 2h8l2 2v10a1 1 0 01-1 1H3a1 1 0 01-1-1V4l2-2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 7h6M5 9.5h4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>');
         html += cards.berc;
     }
+    if (svcs.includes('ai')) {
+        cards.score = makeCard('score', 'Collaboration Health Score', '<path d="M8 1l1.8 4.2L14 7l-4.2 1.8L8 13l-1.8-4.2L2 7l4.2-1.8L8 1z" fill="currentColor"/>');
+        html += cards.score;
+        cards.risk = makeCard('risk', 'Risk Analyst Agent (AI)', '<path d="M8 1l7 13H1L8 1z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 6v4M8 12v0.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>');
+        html += cards.risk;
+        cards.sales = makeCard('sales', 'Sales Strategist Agent (AI)', '<path d="M2 13l4-4 3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 6h3v3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>');
+        html += cards.sales;
+    }
 
     html += `<div class="cost-line">
         <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v6M6 7h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -877,12 +897,26 @@ async function runAnalysis(companyName, cui) {
         if (cui) promises.push(runBerc(cui, msgEl));
         else setCard(msgEl, 'berc', 'error', 'Necesita CUI');
     }
+    if (svcs.includes('ai')) {
+        if (cui || companyName) promises.push(runAI(companyName, cui, msgEl));
+        else { setCard(msgEl, 'score', 'error', 'Necesita CUI sau nume'); }
+    }
 
     await Promise.allSettled(promises);
 
-    // Add summary message
+    // Remember context so the user can ask follow-up questions (US9)
+    lastCompany = companyName || lastCompany;
+    lastCui = cui || lastCui;
+
+    // Add summary message with quick actions (export, track)
     setTimeout(() => {
-        addBotMsg(`Analiza completa. Vrei sa verific alta firma?`);
+        const refAttr = `data-cui="${cui||''}" data-name="${escapeHtml(companyName||'')}"`;
+        addBotMsg(`Analiza completa. Poti pune o intrebare despre firma, sau:
+            <div style="display:flex;gap:0.4rem;margin-top:0.5rem;flex-wrap:wrap;">
+                <button class="btn btn-ghost" ${refAttr} onclick="exportReport(this,'pdf')">Export PDF</button>
+                <button class="btn btn-ghost" ${refAttr} onclick="exportReport(this,'json')">Export JSON</button>
+                <button class="btn btn-ghost" ${refAttr} onclick="trackCompany(this)">Monitorizeaza</button>
+            </div>`);
     }, 300);
 }
 
@@ -1036,6 +1070,131 @@ async function runBerc(cui, msgEl) {
             setCard(msgEl, 'berc', 'error', `<div style="color:var(--warning)">${d.error || 'Raport negasit'}</div>`);
         }
     } catch(e) { setCard(msgEl, 'berc', 'error', '<div>Eroare conexiune</div>'); }
+}
+
+// ═══ AI: score + agents (US3, US4, US13, US14) ═══
+async function runAI(name, cui, msgEl) {
+    try {
+        const r = await fetch('/api/ai/analyze', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({cui: cui||null, company_name: name||null})
+        });
+        if (!r.ok) throw new Error('ai');
+        const d = await r.json();
+
+        // Score card
+        const s = d.score || {};
+        const bandColor = s.band==='healthy'?'var(--success)':s.band==='caution'?'var(--warning)':'var(--error)';
+        const bandLabel = s.band==='healthy'?'Sanatos':s.band==='caution'?'Atentie':'Risc ridicat';
+        let sh = `
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;">
+                <div style="font-size:1.6rem;font-weight:800;color:${bandColor}">${s.score}<span style="font-size:0.8rem;color:var(--text-muted)">/100</span></div>
+                <span class="risk-flag" style="background:${bandColor}22;color:${bandColor};border:1px solid ${bandColor}55">${bandLabel}</span>
+            </div>`;
+        for (const p of (s.pillars||[])) {
+            const pc = p.score>=70?'confidence-high':p.score>=40?'confidence-medium':'confidence-low';
+            sh += `<div class="field-row"><span class="field-label">${p.label}</span><span class="field-value">${p.score}/100</span></div>
+                   <div class="confidence-bar"><div class="confidence-fill ${pc}" style="width:${p.score}%"></div></div>`;
+        }
+        if ((s.missing_data||[]).length) sh += `<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted)">Date lipsa: ${s.missing_data.join(', ')}</div>`;
+        setCard(msgEl, 'score', 'done', sh);
+
+        // Risk Analyst agent
+        const ra = d.risk_analyst || {};
+        setCard(msgEl, 'risk', 'done', renderAgent(ra));
+
+        // Sales Strategist agent
+        const sa = d.sales_strategist || {};
+        setCard(msgEl, 'sales', 'done', renderAgent(sa));
+    } catch(e) {
+        setCard(msgEl, 'score', 'error', '<div>AI indisponibil</div>');
+        setCard(msgEl, 'risk', 'error', '<div>AI indisponibil</div>');
+        setCard(msgEl, 'sales', 'error', '<div>AI indisponibil</div>');
+    }
+}
+
+function renderAgent(a) {
+    const badge = a.used_llm
+        ? '<span class="risk-flag safe" style="font-size:0.62rem">LLM</span>'
+        : '<span class="risk-flag warning" style="font-size:0.62rem">rule-based</span>';
+    let h = `<div style="margin-bottom:0.4rem">${badge}</div><div style="font-size:0.78rem;line-height:1.5">${escapeHtml(a.summary||'')}</div>`;
+    if ((a.bullets||[]).length) {
+        h += '<ul style="margin:0.5rem 0 0 1rem;font-size:0.76rem;line-height:1.5">';
+        for (const b of a.bullets) h += `<li>${escapeHtml(b)}</li>`;
+        h += '</ul>';
+    }
+    return h;
+}
+
+// ═══ Q&A (US9) ═══
+async function askAI(question) {
+    if (!lastCui && !lastCompany) {
+        addBotMsg('Intai analizeaza o firma (ex: <em>"analizeaza CUI 14388248"</em>), apoi pot raspunde la intrebari despre ea.');
+        return;
+    }
+    const typing = addTypingMsg();
+    try {
+        const r = await fetch('/api/ai/ask', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({cui:lastCui, company_name:lastCompany, question})
+        });
+        const d = await r.json();
+        typing.querySelector('.msg-bubble').innerHTML = escapeHtml(d.answer || 'Fara raspuns.');
+    } catch(e) {
+        typing.querySelector('.msg-bubble').innerHTML = '<span style="color:var(--error)">AI indisponibil.</span>';
+    }
+}
+
+// ═══ Export report (US11) ═══
+async function exportReport(btn, fmt) {
+    const cui = btn.getAttribute('data-cui') || null;
+    const name = btn.getAttribute('data-name') || null;
+    btn.disabled = true; btn.textContent = 'Se genereaza...';
+    try {
+        const r = await fetch('/api/backend/export', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+            body: JSON.stringify({cui, company_name:name, format:fmt})
+        });
+        if (!r.ok) throw new Error('export');
+        if (fmt === 'pdf') {
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `finalytics_${cui||'report'}.pdf`;
+            a.click(); URL.revokeObjectURL(url);
+            btn.textContent = 'PDF descarcat';
+        } else {
+            const data = await r.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `finalytics_${cui||'report'}.json`;
+            a.click(); URL.revokeObjectURL(url);
+            btn.textContent = 'JSON descarcat';
+        }
+    } catch(e) {
+        btn.textContent = 'Eroare export';
+    } finally {
+        setTimeout(()=>{ btn.disabled=false; }, 1500);
+    }
+}
+
+// ═══ Track company for alerts (US6) ═══
+async function trackCompany(btn) {
+    const cui = btn.getAttribute('data-cui') || null;
+    const name = btn.getAttribute('data-name') || null;
+    if (!cui) { btn.textContent='Necesita CUI'; return; }
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/backend/alerts/track', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+            body: JSON.stringify({cui, company_name:name})
+        });
+        btn.textContent = r.ok ? 'Monitorizat ✓' : 'Eroare';
+    } catch(e) { btn.textContent = 'Eroare'; }
 }
 
 // ═══ Welcome quick-ask ═══

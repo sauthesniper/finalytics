@@ -2,19 +2,21 @@
 Finalytics Backend - Auth, RBAC, Token Economy, Unified Analysis API.
 """
 import os
-import json
-import time
 import uuid
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from jose import jwt, JWTError
 from passlib.context import CryptContext
+
+import storage
+import integrations
+import reports
 
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -29,40 +31,57 @@ TOKEN_COSTS = {
     "anaf": 1,
     "intel": 3,
     "berc": 5,
+    "ai": 4,
     "full_analysis": 10,
 }
 
-# ─── Storage (JSON file-based for MVP) ────────────────────────────────────────
+# ─── Storage (thread-safe JSON via storage module) ───────────────────────────
 
-DATA_DIR = Path("/app/data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-USERS_FILE = DATA_DIR / "users.json"
-LOGS_FILE = DATA_DIR / "analysis_logs.json"
+USERS_FILE = "users.json"
+LOGS_FILE = "analysis_logs.json"
+FEEDBACK_FILE = "feedback.json"
+ALERTS_FILE = "alerts.json"
+SNAPSHOTS_FILE = "snapshots.json"
 
 
 def load_users():
-    if USERS_FILE.exists():
-        return json.loads(USERS_FILE.read_text())
-    return {}
+    return storage.read_json(USERS_FILE, {})
 
 
 def save_users(users):
-    USERS_FILE.write_text(json.dumps(users, indent=2, default=str))
+    storage.write_json(USERS_FILE, users)
 
 
 def load_logs():
-    if LOGS_FILE.exists():
-        return json.loads(LOGS_FILE.read_text())
-    return []
+    return storage.read_json(LOGS_FILE, [])
 
 
 def save_log_entry(entry):
-    logs = load_logs()
-    logs.append(entry)
-    # Keep last 1000 entries
-    if len(logs) > 1000:
-        logs = logs[-1000:]
-    LOGS_FILE.write_text(json.dumps(logs, indent=2, default=str))
+    def mutate(logs):
+        logs.append(entry)
+        if len(logs) > 1000:
+            logs = logs[-1000:]
+        return logs
+    storage.update_json(LOGS_FILE, [], mutate)
+
+
+def record_snapshot(cui, company_name, score, band):
+    """Append a timestamped score snapshot for company history (US5)."""
+    if not cui:
+        return
+
+    def mutate(snaps):
+        bucket = snaps.setdefault(str(cui), [])
+        bucket.append({
+            "company_name": company_name,
+            "score": score,
+            "band": band,
+            "timestamp": _now_iso(),
+        })
+        # keep last 100 snapshots per company
+        snaps[str(cui)] = bucket[-100:]
+        return snaps
+    storage.update_json(SNAPSHOTS_FILE, {}, mutate)
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -81,9 +100,17 @@ app.add_middleware(
 )
 
 
+def _now_dt():
+    return datetime.now(timezone.utc)
+
+
+def _now_iso():
+    return _now_dt().isoformat()
+
+
 def create_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = _now_dt() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -141,6 +168,32 @@ class AnalysisRequest(BaseModel):
     services: list[str] = ["serp", "anaf", "intel", "berc"]
 
 
+class FeedbackRequest(BaseModel):
+    cui: str
+    rating: int  # 1-5
+    comment: Optional[str] = None
+
+
+class TrackRequest(BaseModel):
+    cui: str
+    company_name: Optional[str] = None
+
+
+class CompanyRef(BaseModel):
+    cui: Optional[str] = None
+    company_name: Optional[str] = None
+
+
+class CompareRequest(BaseModel):
+    companies: list[CompanyRef]
+
+
+class ExportRequest(BaseModel):
+    cui: Optional[str] = None
+    company_name: Optional[str] = None
+    format: str = "json"  # json | pdf
+
+
 # ─── Init default admin ──────────────────────────────────────────────────────
 
 def init_default_users():
@@ -152,7 +205,7 @@ def init_default_users():
             "email": "admin@finalytics.ro",
             "role": "admin",
             "tokens": 9999,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _now_iso(),
         }
     if "demo" not in users:
         users["demo"] = {
@@ -161,7 +214,7 @@ def init_default_users():
             "email": "demo@finalytics.ro",
             "role": "user",
             "tokens": 50,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _now_iso(),
         }
     save_users(users)
 
@@ -190,7 +243,7 @@ def register(req: RegisterRequest):
         "email": req.email,
         "role": "user",
         "tokens": 10,  # Free starter tokens
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": _now_iso(),
     }
     save_users(users)
 
@@ -331,7 +384,7 @@ def run_analysis(req: AnalysisRequest, user=Depends(get_current_user)):
         "services": req.services,
         "cost": total_cost,
         "remaining_tokens": users[user["username"]]["tokens"],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": _now_iso(),
     })
 
     return {
@@ -355,3 +408,179 @@ def validate_ticket(ticket: str = Header(..., alias="x-analysis-ticket")):
         "company_name": payload.get("company_name"),
         "cui": payload.get("cui"),
     }
+
+
+# ─── Routes: Feedback (US10) ──────────────────────────────────────────────────
+
+@app.post("/feedback")
+def add_feedback(req: FeedbackRequest, user=Depends(get_current_user)):
+    """Add user feedback about a collaboration experience."""
+    if req.rating < 1 or req.rating > 5:
+        raise HTTPException(status_code=400, detail="rating must be 1-5")
+
+    entry = {
+        "id": str(uuid.uuid4())[:8],
+        "username": user["username"],
+        "rating": req.rating,
+        "comment": req.comment,
+        "created_at": _now_iso(),
+    }
+
+    def mutate(fb):
+        fb.setdefault(req.cui, []).append(entry)
+        return fb
+    storage.update_json(FEEDBACK_FILE, {}, mutate)
+
+    return {"message": "Feedback saved", "feedback": entry}
+
+
+@app.get("/feedback/{cui}")
+def get_feedback(cui: str):
+    """Public list of feedback for a company, with an average rating."""
+    fb = storage.read_json(FEEDBACK_FILE, {})
+    items = fb.get(cui, [])
+    avg = round(sum(i["rating"] for i in items) / len(items), 2) if items else None
+    return {"cui": cui, "count": len(items), "average_rating": avg, "items": items}
+
+
+# ─── Routes: Alerts (US6) ─────────────────────────────────────────────────────
+
+@app.post("/alerts/track")
+def track_company(req: TrackRequest, user=Depends(get_current_user)):
+    """Track a company; stores a baseline score to detect future changes."""
+    score = integrations.get_score(req.cui, req.company_name)
+    baseline = score.get("score") if score else None
+    band = score.get("band") if score else None
+
+    entry = {
+        "cui": req.cui,
+        "company_name": req.company_name or (score.get("company_name") if score else None),
+        "baseline_score": baseline,
+        "baseline_band": band,
+        "last_score": baseline,
+        "last_band": band,
+        "created_at": _now_iso(),
+    }
+
+    def mutate(alerts):
+        user_alerts = alerts.setdefault(user["username"], [])
+        # de-dup by cui
+        user_alerts = [a for a in user_alerts if a["cui"] != req.cui]
+        user_alerts.append(entry)
+        alerts[user["username"]] = user_alerts
+        return alerts
+    storage.update_json(ALERTS_FILE, {}, mutate)
+
+    if req.cui and baseline is not None:
+        record_snapshot(req.cui, entry["company_name"], baseline, band)
+
+    return {"message": "Company tracked", "tracked": entry}
+
+
+@app.get("/alerts")
+def list_alerts(user=Depends(get_current_user)):
+    """List companies the user is tracking."""
+    alerts = storage.read_json(ALERTS_FILE, {})
+    return {"tracked": alerts.get(user["username"], [])}
+
+
+@app.delete("/alerts/{cui}")
+def untrack_company(cui: str, user=Depends(get_current_user)):
+    def mutate(alerts):
+        user_alerts = alerts.get(user["username"], [])
+        alerts[user["username"]] = [a for a in user_alerts if a["cui"] != cui]
+        return alerts
+    storage.update_json(ALERTS_FILE, {}, mutate)
+    return {"message": f"Stopped tracking {cui}"}
+
+
+@app.post("/alerts/check")
+def check_alerts(user=Depends(get_current_user)):
+    """
+    Re-score all tracked companies and report risk changes (US6).
+    Updates baselines and records history snapshots.
+    """
+    alerts = storage.read_json(ALERTS_FILE, {})
+    user_alerts = alerts.get(user["username"], [])
+    changes = []
+
+    for a in user_alerts:
+        score = integrations.get_score(a["cui"], a.get("company_name"))
+        if not score:
+            continue
+        new_score = score.get("score")
+        new_band = score.get("band")
+        prev = a.get("last_score")
+
+        if prev is not None and new_score is not None and new_score != prev:
+            changes.append({
+                "cui": a["cui"],
+                "company_name": a.get("company_name"),
+                "previous_score": prev,
+                "new_score": new_score,
+                "previous_band": a.get("last_band"),
+                "new_band": new_band,
+                "direction": "improved" if new_score > prev else "worsened",
+            })
+        a["last_score"] = new_score
+        a["last_band"] = new_band
+        record_snapshot(a["cui"], a.get("company_name"), new_score, new_band)
+
+    alerts[user["username"]] = user_alerts
+    storage.write_json(ALERTS_FILE, alerts)
+
+    return {"checked": len(user_alerts), "changes": changes}
+
+
+# ─── Routes: History (US5) ────────────────────────────────────────────────────
+
+@app.get("/history/{cui}")
+def get_history(cui: str):
+    """Timestamped score snapshots over time for a company."""
+    snaps = storage.read_json(SNAPSHOTS_FILE, {})
+    return {"cui": cui, "snapshots": snaps.get(str(cui), [])}
+
+
+# ─── Routes: Compare (US7) ────────────────────────────────────────────────────
+
+@app.post("/compare")
+def compare_companies(req: CompareRequest, user=Depends(get_current_user)):
+    """Compare 2+ companies via the AI module."""
+    if len(req.companies) < 2:
+        raise HTTPException(status_code=400, detail="Provide at least 2 companies")
+    payload = [{"cui": c.cui, "company_name": c.company_name} for c in req.companies]
+    result = integrations.get_compare(payload)
+    if result is None:
+        raise HTTPException(status_code=503, detail="AI module unavailable")
+    return result
+
+
+# ─── Routes: Export (US11) ────────────────────────────────────────────────────
+
+@app.post("/export")
+def export_report(req: ExportRequest, user=Depends(get_current_user)):
+    """Export a full company report as JSON or PDF (US11)."""
+    if not req.cui and not req.company_name:
+        raise HTTPException(status_code=400, detail="Provide cui or company_name")
+
+    analysis = integrations.get_full_analysis(req.cui, req.company_name)
+    if analysis is None:
+        raise HTTPException(status_code=503, detail="AI module unavailable")
+
+    score = analysis.get("score") or {}
+    record_snapshot(req.cui, score.get("company_name") or req.company_name,
+                    score.get("score"), score.get("band"))
+
+    report = reports.build_report_data(req.cui, req.company_name, analysis)
+
+    if req.format == "pdf":
+        pdf_bytes = reports.build_report_pdf(report)
+        filename = f"finalytics_{req.cui or 'report'}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    return report
+

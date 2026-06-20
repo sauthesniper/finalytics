@@ -1,12 +1,16 @@
 services:
-  # Finalytics Backend - Auth, RBAC, Token Economy
+  # ── Finalytics Backend — Auth, RBAC, Token Economy, Feedback/Alerts/Export ──
   backend:
     build: ./backend
+    image: finalytics/backend:latest
     container_name: backend
     ports:
       - "8010:8010"
     environment:
-      - SECRET_KEY=finalytics-prod-secret-change-me
+      - SECRET_KEY=${SECRET_KEY:-finalytics-prod-secret-change-me}
+      - AI_URL=http://ai-api:8003
+      - ANAF_URL=http://anaf-api:8002
+      - INTEL_URL=http://intel-api:8000
     volumes:
       - backend_data:/app/data
     restart: unless-stopped
@@ -16,15 +20,41 @@ services:
       timeout: 5s
       retries: 3
 
-  # SERP Module - Website Discovery API
+  # ── AI Module — Scoring + Risk/Sales Agents + Q&A (US3,4,7,8,9,13,14) ──
+  ai-api:
+    build: ./ai_module
+    image: finalytics/ai-module:latest
+    container_name: ai-api
+    ports:
+      - "8003:8003"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - ANAF_URL=http://anaf-api:8002
+      - INTEL_URL=http://intel-api:8000
+      - SERP_URL=http://serp-api:3000
+      - SERP_API_KEY=${SERP_API_KEY:-dev-secret-key}
+    depends_on:
+      - anaf-api
+      - intel-api
+      - serp-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── SERP Module — Website Discovery API ──
   serp-api:
     build: ./serp_module
+    image: finalytics/serp:latest
     container_name: serp-api
     ports:
       - "3000:3000"
     environment:
-      - API_KEY=dev-secret-key
-      - SERPAPI_API_KEY=f52093f9ee89464a7494e95f16109d5c03ef19064494f43bcb7e73c1caf9fb67
+      - API_KEY=${SERP_API_KEY:-dev-secret-key}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY:-}
       - PORT=3000
     restart: unless-stopped
     healthcheck:
@@ -33,15 +63,16 @@ services:
       timeout: 5s
       retries: 3
 
-  # BERC Module - ONRC BERC Report API
+  # ── BERC Module — ONRC BERC Report API ──
   berc-api:
     build: ./berc_module
+    image: finalytics/berc:latest
     container_name: berc-api
     ports:
       - "8001:8001"
     environment:
-      - ONRC_USERNAME=finbotv1
-      - ONRC_PASSWORD=L0remIpsum*
+      - ONRC_USERNAME=${ONRC_USERNAME:-finbotv1}
+      - ONRC_PASSWORD=${ONRC_PASSWORD:-}
       - BROWSER_PROFILE=/tmp/berc_profile
     volumes:
       - berc_data:/app/data_pdf
@@ -52,9 +83,10 @@ services:
       timeout: 5s
       retries: 3
 
-  # Company Intelligence API (pre-built image)
+  # ── Company Intelligence API — Monitorul Oficial + ONRC BPI ──
   intel-api:
-    image: qjupinu/company-intelligence-api:latest
+    build: ./company-intelligence
+    image: finalytics/company-intelligence:latest
     container_name: intel-api
     ports:
       - "8000:8000"
@@ -65,9 +97,10 @@ services:
       timeout: 5s
       retries: 3
 
-  # ANAF Proxy API
+  # ── ANAF Proxy API ──
   anaf-api:
     build: ./anaf_module
+    image: finalytics/anaf:latest
     container_name: anaf-api
     ports:
       - "8002:8002"
@@ -78,14 +111,16 @@ services:
       timeout: 5s
       retries: 3
 
-  # Frontend - Nginx + UI
+  # ── Frontend — Nginx + UI ──
   frontend:
     build: ./frontend
+    image: finalytics/frontend:latest
     container_name: frontend
     ports:
       - "8080:80"
     depends_on:
       - backend
+      - ai-api
       - serp-api
       - berc-api
       - intel-api
