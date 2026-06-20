@@ -35,3 +35,18 @@ jobs:
             docker compose up -d --build
             docker image prune -f
             echo "Deployed commit: $(git rev-parse --short HEAD)"
+
+            # Deterministic health gate: fail the deploy if the stack is not up.
+            echo "Waiting for services to become healthy..."
+            ok=0
+            for i in $(seq 1 30); do
+              up=$(docker compose ps --format '{{.Name}} {{.Status}}' | grep -c 'healthy' || true)
+              front=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ || echo 000)
+              if [ "$front" = "200" ] && [ "$up" -ge 6 ]; then ok=1; break; fi
+              sleep 5
+            done
+            if [ "$ok" != "1" ]; then
+              echo "Health gate FAILED after deploy:"; docker compose ps
+              exit 1
+            fi
+            echo "Health gate passed: frontend 200, $up services healthy."
