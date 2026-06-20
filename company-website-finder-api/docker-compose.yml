@@ -1,0 +1,9 @@
+services:
+  company-website-discovery-api:
+    build: .
+    image: company-website-finder-api:1.0
+    container_name: company-website-discovery-api
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
