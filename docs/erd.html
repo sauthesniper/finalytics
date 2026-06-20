@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Finalytics — ERD</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: #0f1115;
+    color: #e6e6e6;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 2rem clamp(1rem, 4vw, 4rem);
+  }
+  h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+  h2 { font-size: 1.1rem; margin: 2.5rem 0 0.75rem; color: #ff8a3d; }
+  p.sub { color: #9aa0aa; margin: 0 0 1.5rem; font-size: 0.9rem; }
+  .panel {
+    background: #161922;
+    border: 1px solid #262b36;
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-x: auto;
+  }
+  .mermaid { display: flex; justify-content: center; }
+  footer { color: #6b727e; font-size: 0.78rem; margin-top: 2.5rem; }
+  code { background: #20242e; padding: 0.1rem 0.35rem; border-radius: 5px; }
+</style>
+</head>
+<body>
+  <h1>Finalytics — Entity Relationship Diagram</h1>
+  <p class="sub">Backend persists JSON files via <code>storage.py</code> (volume <code>backend_data</code>). Microservice data is transient.</p>
+
+  <h2>Persisted data model (backend JSON store)</h2>
+  <div class="panel">
+    <pre class="mermaid">
+erDiagram
+    USER ||--o{ ANALYSIS_LOG    : "initiates"
+    USER ||--o{ FEEDBACK        : "writes"
+    USER ||--o{ ALERT           : "tracks"
+
+    COMPANY ||--o{ FEEDBACK       : "receives"
+    COMPANY ||--o{ ALERT          : "is monitored in"
+    COMPANY ||--o{ SCORE_SNAPSHOT : "has history"
+    COMPANY |o--o{ ANALYSIS_LOG   : "is analyzed in"
+
+    USER {
+        string   username PK "key in users.json"
+        string   password_hash "bcrypt"
+        string   email
+        string   role "admin | user"
+        int      tokens "balance"
+        datetime created_at
+    }
+
+    ANALYSIS_LOG {
+        string   ticket_id PK "8-char id (JWT ticket)"
+        string   username FK
+        string   cui FK "nullable"
+        string   company_name "nullable"
+        string   services "serp|anaf|intel|berc|ai"
+        int      cost "tokens deducted"
+        int      remaining_tokens
+        datetime timestamp
+    }
+
+    FEEDBACK {
+        string   id PK "8-char id"
+        string   cui FK "bucket key in feedback.json"
+        string   username FK
+        int      rating "1-5"
+        string   comment "nullable"
+        datetime created_at
+    }
+
+    ALERT {
+        string   username FK "bucket key in alerts.json"
+        string   cui FK "unique per user"
+        string   company_name
+        int      baseline_score
+        string   baseline_band
+        int      last_score
+        string   last_band
+        datetime created_at
+    }
+
+    SCORE_SNAPSHOT {
+        string   cui FK "bucket key in snapshots.json"
+        string   company_name
+        int      score "0-100"
+        string   band "high_risk|caution|healthy"
+        datetime timestamp
+    }
+
+    COMPANY {
+        string cui PK "fiscal code (derived hub, not a stored table)"
+        string company_name "denormalized on each record"
+    }
+    </pre>
+  </div>
+
+  <h2>Runtime / non-persisted data (microservice aggregation)</h2>
+  <div class="panel">
+    <pre class="mermaid">
+erDiagram
+    COMPANY ||--|| ANALYSIS_BUNDLE : "aggregated for"
+    ANALYSIS_BUNDLE ||--o| ANAF_RECORD         : "from anaf-api"
+    ANALYSIS_BUNDLE ||--o| INTEL_RECORD         : "from intel-api"
+    ANALYSIS_BUNDLE ||--o| SERP_DISCOVERY       : "from serp-api"
+    ANALYSIS_BUNDLE ||--|| HEALTH_SCORE         : "computed"
+    ANALYSIS_BUNDLE ||--o{ AGENT_ASSESSMENT     : "risk / sales / qa"
+    ANALYSIS_BUNDLE ||--o| WEB_RESEARCH_RESULT  : "agentic"
+    BERC_REPORT }o--|| COMPANY                  : "from berc-api"
+
+    ANALYSIS_BUNDLE {
+        string cui
+        string company_name
+        string sources "which services responded"
+    }
+    ANAF_RECORD {
+        string denumire
+        string cui
+        bool   scpTVA "VAT payer"
+        bool   statusInactivi
+        string adresa
+        string cod_CAEN
+    }
+    INTEL_RECORD {
+        json monitorul_oficial
+        json bpi "insolvency signals"
+    }
+    SERP_DISCOVERY {
+        string website
+        float  confidence
+        json   alternatives
+    }
+    HEALTH_SCORE {
+        int    score "0-100"
+        string band
+        json   pillars "5 weighted pillars"
+        json   positives
+        json   negatives
+        json   missing_data
+    }
+    AGENT_ASSESSMENT {
+        string agent "risk_analyst|sales_strategist|qa"
+        string summary
+        json   bullets
+        string model
+        bool   used_llm
+    }
+    WEB_RESEARCH_RESULT {
+        string website
+        float  confidence
+        string summary
+        json   steps "ReAct trace"
+    }
+    BERC_REPORT {
+        string denumire
+        string reg_comert
+        string euid
+        json   rezolutii
+    }
+    </pre>
+  </div>
+
+  <footer>Generated for Finalytics. Open in any browser; diagrams render client-side via Mermaid.js.</footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "dark",
+      themevariables: {
+        primaryColor: "#1f2530",
+        primaryBorderColor: "#ff8a3d",
+        lineColor: "#7a8290",
+        fontSize: "13px"
+      }
+    });
+  </script>
+</body>
+</html>

@@ -633,7 +633,7 @@
         </div>
     </div>
 
-<script src="intent.js"></script>
+<script src="intent.js?v=2"></script>
 <script>
 const SERP_KEY = 'dev-secret-key';
 let token = localStorage.getItem('ftoken');
@@ -689,8 +689,25 @@ function renderDocChips() {
 }
 
 // Sanitized payload for the LLM (shared logic is unit-tested in intent.js).
+// Defensive: never throw here, even if a stale/cached intent.js is missing
+// sanitizeDocuments — otherwise the whole AI flow would break (see BUG: a
+// cached intent.js without sanitizeDocuments caused "AI indisponibil").
 function docsPayload() {
-    return FinalyticsIntent.sanitizeDocuments(attachedDocs, { maxDocs: MAX_DOCS, maxChars: MAX_DOC_CHARS });
+    try {
+        if (FinalyticsIntent && typeof FinalyticsIntent.sanitizeDocuments === 'function') {
+            return FinalyticsIntent.sanitizeDocuments(attachedDocs, { maxDocs: MAX_DOCS, maxChars: MAX_DOC_CHARS });
+        }
+    } catch (e) { /* fall through to inline fallback */ }
+    // Inline fallback mirroring sanitizeDocuments' contract.
+    const out = [];
+    for (const d of (attachedDocs || [])) {
+        if (out.length >= MAX_DOCS) break;
+        const content = (d && d.content != null ? String(d.content) : '').trim();
+        if (!content) continue;
+        const name = (d && d.name ? String(d.name) : 'document').slice(0, 120);
+        out.push({ name: name, content: content.slice(0, MAX_DOC_CHARS) });
+    }
+    return out;
 }
 
 // ═══ Init ═══
