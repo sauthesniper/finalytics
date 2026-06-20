@@ -1,0 +1,9 @@
+.env
+data_pdf/
+data_json/
+__pycache__/
+*.pyc
+.git/
+test_berc.py
+find_cui.py
+descarca_firma.py

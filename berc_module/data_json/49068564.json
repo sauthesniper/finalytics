@@ -1,0 +1,42 @@
+{
+  "metadata": {
+    "source_file": "49068564.pdf",
+    "pages": 1
+  },
+  "document": {
+    "titlu": "ARTICOLE PUBLICATE PENTRU UN PROFESIONIST",
+    "tip_raport": "Articole publicate pentru un profesionist"
+  },
+  "profesionist": {
+    "denumire": "POPA ȘTEFAN-LIVIU-OCTAVIAN PERSOANĂ FIZICĂ",
+    "numar_registrul_comertului": "F40/8253/2023",
+    "euid": "ROONRC.F40/8253/2023",
+    "cui": "49068564",
+    "adresa_sediu": "Bucureşti Sectorul 1, B-dul BUCUREŞTII NOI, Nr. 136,"
+  },
+  "tabel_articole_publicate": {
+    "coloane": [
+      "categorie_publicitate",
+      "numar_cerere",
+      "data_cerere",
+      "numar_buletin",
+      "data_buletin"
+    ],
+    "randuri": [
+      {
+        "categorie_publicitate": "Încheieri pronunțate în soluționarea altor cereri de înregistrare",
+        "numar_cerere": "592538",
+        "data_cerere": "06.12.2023",
+        "numar_buletin": "44848",
+        "data_buletin": "08.12.2023"
+      },
+      {
+        "categorie_publicitate": "Încheieri pronunțate în soluționarea cererilor de înmatriculare",
+        "numar_cerere": "526765",
+        "data_cerere": "18.10.2023",
+        "numar_buletin": "41965",
+        "data_buletin": "07.11.2023"
+      }
+    ]
+  }
+}

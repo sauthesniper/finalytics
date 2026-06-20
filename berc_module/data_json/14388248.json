@@ -1,0 +1,84 @@
+{
+  "metadata": {
+    "source_file": "14388248.pdf",
+    "pages": 2
+  },
+  "document": {
+    "titlu": "ARTICOLE PUBLICATE PENTRU UN PROFESIONIST",
+    "tip_raport": "Articole publicate pentru un profesionist"
+  },
+  "profesionist": {
+    "denumire": "INTERNET TEAM S.R.L.",
+    "numar_registrul_comertului": "J29/46/2002",
+    "euid": "ROONRC.J2002000046299",
+    "cui": "14388248",
+    "adresa_sediu": "Municipiul Ploieşti, Str. LUPENI, Nr. 6B, Etaj 1, Apartament 2,"
+  },
+  "tabel_articole_publicate": {
+    "coloane": [
+      "categorie_publicitate",
+      "numar_cerere",
+      "data_cerere",
+      "numar_buletin",
+      "data_buletin"
+    ],
+    "randuri": [
+      {
+        "categorie_publicitate": "Indicatorii economico-financiari necesari efectuării publicității legale conform art.185 alin.(3) din Legea nr. 31/1990",
+        "numar_cerere": "56039",
+        "data_cerere": "16.06.2021",
+        "numar_buletin": "8708",
+        "data_buletin": "17.06.2021"
+      },
+      {
+        "categorie_publicitate": "Indicatorii economico-financiari necesari efectuării publicității legale conform art.185 alin.(3) din Legea nr. 31/1990",
+        "numar_cerere": "10383",
+        "data_cerere": "01.02.2022",
+        "numar_buletin": "4110",
+        "data_buletin": "02.02.2022"
+      },
+      {
+        "categorie_publicitate": "Indicatorii economico-financiari necesari efectuării publicității legale conform art.185 alin.(3) din Legea nr. 31/1990",
+        "numar_cerere": "79044",
+        "data_cerere": "24.06.2022",
+        "numar_buletin": "34833",
+        "data_buletin": "24.06.2022"
+      },
+      {
+        "categorie_publicitate": "Comunicare rezoluție de amânare conform art.7 alin.(5) din OUG nr. 116/2009, pentru cererea de înregistrare depusă la ORCT",
+        "numar_cerere": "70447",
+        "data_cerere": "19.08.2021",
+        "numar_buletin": "12498",
+        "data_buletin": "20.08.2021"
+      },
+      {
+        "categorie_publicitate": "Comunicare rezoluție de amânare conform art.7 alin.(5) din OUG nr. 116/2009, pentru cererea de înregistrare depusă la ORCT",
+        "numar_cerere": "98748",
+        "data_cerere": "18.10.2022",
+        "numar_buletin": "39864",
+        "data_buletin": "19.10.2022"
+      },
+      {
+        "categorie_publicitate": "Denumire profesionist: INTERNET TEAM S.R.L. Număr de ordine în registrul comerțului: J29/46/2002 Identificator unic la nivel european (EUID): ROONRC.J2002000046299 Cod unic de înregistrare (CUI): 14388248 Adresă sediu: Municipiul Ploieşti, Str. LUPENI, Nr. 6B, Etaj 1, Apartament 2, Județ Prahova Încheieri pronunțate în soluționarea altor cereri de înregistrare",
+        "numar_cerere": "615323",
+        "data_cerere": "18.02.2025",
+        "numar_buletin": "6586",
+        "data_buletin": "20.02.2025"
+      },
+      {
+        "categorie_publicitate": "Încheieri pronunțate în soluționarea altor cereri de înregistrare",
+        "numar_cerere": "756462",
+        "data_cerere": "26.02.2025",
+        "numar_buletin": "8276",
+        "data_buletin": "03.03.2025"
+      },
+      {
+        "categorie_publicitate": "Indicatorii economico-financiari necesari efectuării publicității legale conform art.185 alin.(3) din Legea nr. 31/1990",
+        "numar_cerere": "45339",
+        "data_cerere": "23.06.2023",
+        "numar_buletin": "28478",
+        "data_buletin": "23.06.2023"
+      }
+    ]
+  }
+}

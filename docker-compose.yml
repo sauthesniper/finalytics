@@ -1,0 +1,97 @@
+services:
+  # Finalytics Backend - Auth, RBAC, Token Economy
+  backend:
+    build: ./backend
+    container_name: backend
+    ports:
+      - "8010:8010"
+    environment:
+      - SECRET_KEY=finalytics-prod-secret-change-me
+    volumes:
+      - backend_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # SERP Module - Website Discovery API
+  serp-api:
+    build: ./serp_module
+    container_name: serp-api
+    ports:
+      - "3000:3000"
+    environment:
+      - API_KEY=dev-secret-key
+      - SERPAPI_API_KEY=f52093f9ee89464a7494e95f16109d5c03ef19064494f43bcb7e73c1caf9fb67
+      - PORT=3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # BERC Module - ONRC BERC Report API
+  berc-api:
+    build: ./berc_module
+    container_name: berc-api
+    ports:
+      - "8001:8001"
+    environment:
+      - ONRC_USERNAME=finbotv1
+      - ONRC_PASSWORD=L0remIpsum*
+      - BROWSER_PROFILE=/tmp/berc_profile
+    volumes:
+      - berc_data:/app/data_pdf
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Company Intelligence API (pre-built image)
+  intel-api:
+    image: qjupinu/company-intelligence-api:latest
+    container_name: intel-api
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ANAF Proxy API
+  anaf-api:
+    build: ./anaf_module
+    container_name: anaf-api
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Frontend - Nginx + UI
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+      - serp-api
+      - berc-api
+      - intel-api
+      - anaf-api
+    restart: unless-stopped
+
+volumes:
+  berc_data:
+  backend_data:
