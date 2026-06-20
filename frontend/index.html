@@ -273,6 +273,8 @@
 
         .spinner { width: 12px; height: 12px; border: 2px solid rgba(249,115,22,0.3); border-radius: 50%; border-top-color: var(--orange); animation: spin 0.7s linear infinite; display: inline-block; }
 
+        .stream-cursor { display:inline-block; width:7px; color:var(--orange); animation: pulse 1s steps(2) infinite; font-weight:700; }
+
         /* Summary cost line */
         .cost-line {
             display: flex; align-items: center; gap: 0.5rem;
@@ -1047,41 +1049,104 @@ async function runBerc(cui, msgEl) {
     } catch(e) { setCard(msgEl, 'berc', 'error', '<div>Eroare conexiune</div>'); }
 }
 
-// ═══ AI: score + agents (US3, US4, US13, US14) ═══
-async function runAI(name, cui, msgEl) {
-    try {
-        const r = await fetch('/api/ai/analyze', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({cui: cui||null, company_name: name||null})
-        });
-        if (!r.ok) throw new Error('ai');
-        const d = await r.json();
-
-        // Score card
-        const s = d.score || {};
-        const bandColor = s.band==='healthy'?'var(--success)':s.band==='caution'?'var(--warning)':'var(--error)';
-        const bandLabel = s.band==='healthy'?'Sanatos':s.band==='caution'?'Atentie':'Risc ridicat';
-        let sh = `
-            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;">
-                <div style="font-size:1.6rem;font-weight:800;color:${bandColor}">${s.score}<span style="font-size:0.8rem;color:var(--text-muted)">/100</span></div>
-                <span class="risk-flag" style="background:${bandColor}22;color:${bandColor};border:1px solid ${bandColor}55">${bandLabel}</span>
-            </div>`;
-        for (const p of (s.pillars||[])) {
-            const pc = p.score>=70?'confidence-high':p.score>=40?'confidence-medium':'confidence-low';
-            sh += `<div class="field-row"><span class="field-label">${p.label}</span><span class="field-value">${p.score}/100</span></div>
-                   <div class="confidence-bar"><div class="confidence-fill ${pc}" style="width:${p.score}%"></div></div>`;
+// ═══ SSE helper: read Server-Sent Events from a POST fetch ═══
+async function streamSSE(url, body, onEvent) {
+    const resp = await fetch(url, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!resp.ok || !resp.body) throw new Error('stream failed');
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream:true});
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            let event = 'message', data = '';
+            for (const line of chunk.split('\n')) {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data += line.slice(5).trim();
+            }
+            if (data) { try { onEvent(event, JSON.parse(data)); } catch(e){} }
         }
-        if ((s.missing_data||[]).length) sh += `<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted)">Date lipsa: ${s.missing_data.join(', ')}</div>`;
-        setCard(msgEl, 'score', 'done', sh);
+    }
+}
 
-        // Risk Analyst agent
-        const ra = d.risk_analyst || {};
-        setCard(msgEl, 'risk', 'done', renderAgent(ra));
+function formatStreamText(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length);
+    const bullets = [], paras = [];
+    for (const l of lines) {
+        if (/^[-*•]\s+/.test(l) || /^\d+[.)]\s+/.test(l)) bullets.push(l.replace(/^([-*•]|\d+[.)])\s+/, ''));
+        else paras.push(l);
+    }
+    let h = '';
+    if (paras.length) h += `<div style="font-size:0.78rem;line-height:1.5">${escapeHtml(paras.join(' '))}</div>`;
+    if (bullets.length) { h += '<ul style="margin:0.5rem 0 0 1rem;font-size:0.76rem;line-height:1.5">'; for (const b of bullets) h += `<li>${escapeHtml(b)}</li>`; h += '</ul>'; }
+    return h || `<div style="font-size:0.78rem">${escapeHtml(text)}</div>`;
+}
 
-        // Sales Strategist agent
-        const sa = d.sales_strategist || {};
-        setCard(msgEl, 'sales', 'done', renderAgent(sa));
+function renderScoreCardHtml(s) {
+    const bandColor = s.band==='healthy'?'var(--success)':s.band==='caution'?'var(--warning)':'var(--error)';
+    const bandLabel = s.band==='healthy'?'Sanatos':s.band==='caution'?'Atentie':'Risc ridicat';
+    let sh = `
+        <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;">
+            <div style="font-size:1.6rem;font-weight:800;color:${bandColor}">${s.score}<span style="font-size:0.8rem;color:var(--text-muted)">/100</span></div>
+            <span class="risk-flag" style="background:${bandColor}22;color:${bandColor};border:1px solid ${bandColor}55">${bandLabel}</span>
+        </div>`;
+    for (const p of (s.pillars||[])) {
+        const pc = p.score>=70?'confidence-high':p.score>=40?'confidence-medium':'confidence-low';
+        sh += `<div class="field-row"><span class="field-label">${p.label}</span><span class="field-value">${p.score}/100</span></div>
+               <div class="confidence-bar"><div class="confidence-fill ${pc}" style="width:${p.score}%"></div></div>`;
+    }
+    if ((s.missing_data||[]).length) sh += `<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted)">Date lipsa: ${s.missing_data.join(', ')}</div>`;
+    return sh;
+}
+
+function streamCardBadge(msgEl, type, usedLlm) {
+    const card = msgEl.querySelector(`[data-card="${type}"]`);
+    if (!card) return;
+    const st = card.querySelector('.rich-card-status');
+    st.className = 'rich-card-status status-loading';
+    st.innerHTML = `${usedLlm ? 'LLM' : 'rule-based'} <span class="spinner"></span>`;
+    card.querySelector('.rich-card-body').innerHTML = '<span class="stream-cursor">▋</span>';
+}
+
+function streamCardUpdate(msgEl, type, text) {
+    const card = msgEl.querySelector(`[data-card="${type}"]`);
+    if (!card) return;
+    card.querySelector('.rich-card-body').innerHTML = formatStreamText(text) + '<span class="stream-cursor">▋</span>';
+    scrollBottom();
+}
+
+function streamCardFinalize(msgEl, type, text, usedLlm) {
+    const card = msgEl.querySelector(`[data-card="${type}"]`);
+    if (!card) return;
+    const st = card.querySelector('.rich-card-status');
+    st.className = 'rich-card-status status-done';
+    st.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 5l3 3 5-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Done`;
+    const badge = usedLlm ? '<span class="risk-flag safe" style="font-size:0.62rem">LLM</span>' : '<span class="risk-flag warning" style="font-size:0.62rem">rule-based</span>';
+    card.querySelector('.rich-card-body').innerHTML = `<div style="margin-bottom:0.4rem">${badge}</div>` + formatStreamText(text);
+}
+
+// ═══ AI: streaming score + agents (US3, US4, US13, US14) ═══
+async function runAI(name, cui, msgEl) {
+    let riskText = '', salesText = '';
+    let riskLlm = false, salesLlm = false;
+    try {
+        await streamSSE('/api/ai/analyze/stream', {cui: cui||null, company_name: name||null}, (event, data) => {
+            switch (event) {
+                case 'score': setCard(msgEl, 'score', 'done', renderScoreCardHtml(data)); break;
+                case 'risk_start': riskLlm = data.used_llm; streamCardBadge(msgEl, 'risk', data.used_llm); break;
+                case 'risk_delta': riskText += data.t; streamCardUpdate(msgEl, 'risk', riskText); break;
+                case 'risk_end': streamCardFinalize(msgEl, 'risk', riskText, riskLlm); break;
+                case 'sales_start': salesLlm = data.used_llm; streamCardBadge(msgEl, 'sales', data.used_llm); break;
+                case 'sales_delta': salesText += data.t; streamCardUpdate(msgEl, 'sales', salesText); break;
+                case 'sales_end': streamCardFinalize(msgEl, 'sales', salesText, salesLlm); break;
+            }
+        });
     } catch(e) {
         setCard(msgEl, 'score', 'error', '<div>AI indisponibil</div>');
         setCard(msgEl, 'risk', 'error', '<div>AI indisponibil</div>');
@@ -1089,35 +1154,30 @@ async function runAI(name, cui, msgEl) {
     }
 }
 
-function renderAgent(a) {
-    const badge = a.used_llm
-        ? '<span class="risk-flag safe" style="font-size:0.62rem">LLM</span>'
-        : '<span class="risk-flag warning" style="font-size:0.62rem">rule-based</span>';
-    let h = `<div style="margin-bottom:0.4rem">${badge}</div><div style="font-size:0.78rem;line-height:1.5">${escapeHtml(a.summary||'')}</div>`;
-    if ((a.bullets||[]).length) {
-        h += '<ul style="margin:0.5rem 0 0 1rem;font-size:0.76rem;line-height:1.5">';
-        for (const b of a.bullets) h += `<li>${escapeHtml(b)}</li>`;
-        h += '</ul>';
-    }
-    return h;
-}
-
-// ═══ Q&A (US9) ═══
+// ═══ Q&A streaming (US9) ═══
 async function askAI(question) {
     if (!lastCui && !lastCompany) {
         addBotMsg('Intai analizeaza o firma (ex: <em>"analizeaza CUI 14388248"</em>), apoi pot raspunde la intrebari despre ea.');
         return;
     }
-    const typing = addTypingMsg();
+    const msg = addTypingMsg();
+    const bubble = msg.querySelector('.msg-bubble');
+    let text = '';
     try {
-        const r = await fetch('/api/ai/ask', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({cui:lastCui, company_name:lastCompany, question})
+        await streamSSE('/api/ai/ask/stream', {cui:lastCui, company_name:lastCompany, question}, (event, data) => {
+            if (event === 'start') {
+                bubble.innerHTML = '<span class="stream-cursor">▋</span>';
+            } else if (event === 'delta') {
+                text += data.t;
+                bubble.innerHTML = escapeHtml(text) + '<span class="stream-cursor">▋</span>';
+                scrollBottom();
+            } else if (event === 'done') {
+                bubble.innerHTML = escapeHtml(text) || 'Fara raspuns.';
+            }
         });
-        const d = await r.json();
-        typing.querySelector('.msg-bubble').innerHTML = escapeHtml(d.answer || 'Fara raspuns.');
+        if (!text) bubble.innerHTML = 'Fara raspuns.';
     } catch(e) {
-        typing.querySelector('.msg-bubble').innerHTML = '<span style="color:var(--error)">AI indisponibil.</span>';
+        bubble.innerHTML = '<span style="color:var(--error)">AI indisponibil.</span>';
     }
 }
 

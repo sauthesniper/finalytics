@@ -59,6 +59,20 @@ def _fallback(bundle: Dict[str, Any], score: Dict[str, Any]) -> Tuple[str, List[
     return summary, bullets
 
 
+def build_user_prompt(bundle: Dict[str, Any], score: Dict[str, Any]) -> str:
+    """The exact user prompt used by the Sales Strategist (shared with streaming)."""
+    return (
+        f"{build_context(bundle, score)}\n\n"
+        "Oferă strategia comercială și recomandările de colaborare pentru această firmă."
+    )
+
+
+def fallback_text(bundle: Dict[str, Any], score: Dict[str, Any]) -> str:
+    """Deterministic sales text (used when the LLM is unavailable, incl. streaming)."""
+    summary, bullets = _fallback(bundle, score)
+    return summary + "\n" + "\n".join("- " + b for b in bullets)
+
+
 def run_sales_strategist(bundle: Dict[str, Any], score: Dict[str, Any]) -> Dict[str, Any]:
     context = build_context(bundle, score)
     user_prompt = (

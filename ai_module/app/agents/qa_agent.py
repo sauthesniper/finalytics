@@ -18,6 +18,19 @@ SYSTEM_PROMPT = (
 )
 
 
+def build_user_prompt(bundle: Dict[str, Any], score: Dict[str, Any], question: str) -> str:
+    return f"{build_context(bundle, score)}\n\nÎNTREBARE: {question}\n\nRăspuns:"
+
+
+def fallback_text(bundle: Dict[str, Any], score: Dict[str, Any]) -> str:
+    name = bundle.get("company_name") or f"CUI {bundle.get('cui')}"
+    return (
+        f"Momentan nu pot genera un răspuns AI (model indisponibil). "
+        f"Pe baza datelor: {name} are scorul de colaborare {score['score']}/100 "
+        f"(categorie: {score['band']})."
+    )
+
+
 def run_qa(bundle: Dict[str, Any], score: Dict[str, Any], question: str) -> Dict[str, Any]:
     context = build_context(bundle, score)
     user_prompt = f"{context}\n\nÎNTREBARE: {question}\n\nRăspuns:"
